@@ -1,0 +1,32 @@
+{
+  "hook": "A major crypto exchange just lost 200 million dollars in a devastating hack.",
+  "body": "The attack exploited a critical flaw in the multisig wallet configuration.",
+  "cta": "Follow for more crypto security updates.",
+  "estimated_duration": 30,
+  "format": "stat-heavy explainer",
+  "claims_used": [
+    "Exchange lost $200M",
+    "Multisig wallet exploited",
+    "Attack happened on August 15th"
+  ],
+  "claims_not_used": [
+    "FBI is investigating"
+  ],
+  "suggested_visual_beats": [
+    {
+      "name": "beat_01_overview",
+      "narration_text": "Security researchers at Chainalysis identified the vulnerability in the exchange cold storage setup. The flaw allowed unauthorized signature aggregation.",
+      "beat_type": "kinetic_text"
+    },
+    {
+      "name": "beat_02_stat",
+      "narration_text": "The attacker made off with exactly 347 Bitcoin worth over 200 million dollars.",
+      "beat_type": "stat_reveal"
+    },
+    {
+      "name": "beat_03_diagram",
+      "narration_text": "Normal multisig requires 3 of 5 signatures. The exploit bypassed this by replaying a single signature across all slots.",
+      "beat_type": "diagram"
+    }
+  ]
+}

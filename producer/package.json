@@ -1,0 +1,28 @@
+{
+  "name": "content-agent-producer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remotion video renderer for Content Ops Agent",
+  "scripts": {
+    "start": "npx remotion studio",
+    "build": "npx remotion render",
+    "typecheck": "npx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^5.9.3"
+  },
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@remotion/cli": "^4.0.514",
+    "@remotion/google-fonts": "^4.0.514",
+    "@remotion/renderer": "^4.0.514",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "^4.0.514"
+  }
+}

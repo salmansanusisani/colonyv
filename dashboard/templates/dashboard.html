@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COLONY V — Autonomous Media Hub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        :root {
+            --bg-body: #f5f5f7;
+            --surface-card: #ffffff;
+            --surface-card-translucent: rgba(255, 255, 255, 0.85);
+            --border-light: rgba(0, 0, 0, 0.08);
+            --border-hover: rgba(0, 113, 227, 0.3);
+            
+            --text-primary: #1d1d1f;
+            --text-secondary: #6e6e73;
+            --text-tertiary: #86868b;
+            
+            --apple-blue: #0071e3;
+            --apple-blue-hover: #0077ed;
+            --apple-green: #34c759;
+            --apple-red: #ff3b30;
+            --apple-amber: #ff9500;
+            --apple-purple: #af52de;
+
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+            --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Top Navigation Header */
+        .app-header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(245, 245, 247, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-light);
+            padding: 14px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: #1d1d1f;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .brand-title-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .roman-tag {
+            background: rgba(0, 113, 227, 0.1);
+            color: var(--apple-blue);
+            font-size: 12px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 12px;
+            letter-spacing: 1px;
+        }
+
+        .brand-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Segmented Control Switcher */
+        .segmented-control {
+            display: inline-flex;
+            background: rgba(120, 120, 128, 0.12);
+            padding: 4px;
+            border-radius: 14px;
+            gap: 2px;
+        }
+
+        .segmented-control button {
+            border: none;
+            background: transparent;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .segmented-control button:hover {
+            color: var(--text-primary);
+        }
+
+        .segmented-control button.active {
+            background: #ffffff;
+            color: var(--text-primary);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        /* Status Indicator Pill */
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #ffffff;
+            padding: 6px 14px;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            border: 1px solid var(--border-light);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-tertiary);
+        }
+
+        .status-dot.active {
+            background-color: var(--apple-green);
+            box-shadow: 0 0 10px var(--apple-green);
+            animation: pulseDot 1.2s infinite;
+        }
+
+        @keyframes pulseDot {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(0.8); opacity: 0.6; }
+        }
+
+        /* Main Workspace Container */
+        .workspace {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 40px;
+        }
+
+        .view-content { display: none; }
+        .view-content.active { display: block; animation: viewFadeIn 0.25s ease; }
+
+        @keyframes viewFadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Grid Layouts */
+        .grid-row { display: grid; gap: 20px; }
+        .grid-4 { grid-template-columns: repeat(4, 1fr); }
+        .grid-3 { grid-template-columns: repeat(3, 1fr); }
+        .grid-2 { grid-template-columns: repeat(2, 1fr); }
+        .grid-1-2 { grid-template-columns: 1fr 2fr; }
+        .grid-2-1 { grid-template-columns: 2fr 1fr; }
+
+        /* Apple Glass Cards */
+        .apple-card {
+            background: var(--surface-card);
+            border: 1px solid var(--border-light);
+            border-radius: 18px;
+            padding: 24px;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.2s ease;
+        }
+
+        .apple-card:hover {
+            box-shadow: var(--shadow-md);
+            border-color: rgba(0, 0, 0, 0.12);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .card-big-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.03em;
+        }
+
+        .card-subtext {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 4px;
+        }
+
+        /* Buttons */
+        .btn-apple {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 980px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .btn-apple-primary {
+            background: var(--apple-blue);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.25);
+        }
+
+        .btn-apple-primary:hover {
+            background: var(--apple-blue-hover);
+            transform: scale(1.02);
+            box-shadow: 0 6px 16px rgba(0, 113, 227, 0.35);
+        }
+
+        .btn-apple-primary:disabled {
+            background: #e5e5ea;
+            color: #a1a1a6;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .btn-apple-secondary {
+            background: rgba(0, 0, 0, 0.05);
+            color: var(--text-primary);
+        }
+
+        .btn-apple-secondary:hover {
+            background: rgba(0, 0, 0, 0.08);
+        }
+
+        .btn-apple-danger {
+            background: var(--apple-red);
+            color: #ffffff;
+        }
+
+        .btn-apple-danger:hover {
+            background: #e02b20;
+        }
+
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 12px;
+        }
+
+        /* Control Panel Header Bar */
+        .control-hero-card {
+            background: #ffffff;
+            border: 1px solid var(--border-light);
+            border-radius: 20px;
+            padding: 24px 30px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .hero-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .input-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .apple-select, .apple-input {
+            background: #f5f5f7;
+            border: 1px solid var(--border-light);
+            padding: 8px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .apple-select:focus, .apple-input:focus {
+            border-color: var(--apple-blue);
+            background: #ffffff;
+            box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
+        }
+
+        /* Live Step Tracker */
+        .step-tracker {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .tracker-node {
+            flex: 1;
+            background: #f5f5f7;
+            border: 1px solid var(--border-light);
+            padding: 10px;
+            border-radius: 12px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            transition: all 0.25s ease;
+        }
+
+        .tracker-node.active {
+            background: rgba(0, 113, 227, 0.08);
+            border-color: var(--apple-blue);
+            color: var(--apple-blue);
+        }
+
+        .tracker-node.done {
+            background: rgba(52, 199, 89, 0.08);
+            border-color: var(--apple-green);
+            color: var(--apple-green);
+        }
+
+        /* Terminal Drawer */
+        .terminal-wrapper {
+            background: #1c1c1e;
+            border-radius: 16px;
+            padding: 18px;
+            color: #f2f2f7;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .terminal-body {
+            height: 260px;
+            overflow-y: auto;
+        }
+
+        .terminal-body.expanded {
+            height: 520px;
+        }
+
+        .log-entry {
+            color: #a1a1a6;
+            margin-bottom: 2px;
+        }
+
+        .log-entry.success { color: var(--apple-green); }
+        .log-entry.info { color: #64d2ff; }
+        .log-entry.warning { color: var(--apple-amber); }
+
+        /* Tables */
+        .apple-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .apple-table th {
+            text-align: left;
+            padding: 12px 16px;
+            color: var(--text-tertiary);
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .apple-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-light);
+            color: var(--text-primary);
+        }
+
+        .apple-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .apple-table tr.clickable {
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .apple-table tr.clickable:hover td {
+            background: #f5f5f7;
+        }
+
+        /* Minimal Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .badge-green { background: rgba(52, 199, 89, 0.12); color: var(--apple-green); }
+        .badge-gray { background: rgba(142, 142, 147, 0.12); color: var(--text-secondary); }
+        .badge-blue { background: rgba(0, 113, 227, 0.12); color: var(--apple-blue); }
+
+        /* Loading states */
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(0, 113, 227, 0.15);
+            border-top-color: var(--apple-blue);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .skeleton-line {
+            height: 12px;
+            border-radius: 6px;
+            background: linear-gradient(90deg, #ececee 25%, #f5f5f7 50%, #ececee 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s ease-in-out infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .card-big-value.loading {
+            color: var(--text-tertiary);
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 0;
+        }
+
+        /* Modal Overlay */
+        .apple-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .apple-modal-overlay.open { display: flex; }
+
+        .apple-modal {
+            background: #ffffff;
+            border-radius: 20px;
+            width: 100%;
+            max-width: 860px;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 32px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .modal-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        /* Toast Messages */
+        .toast-shelf {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .apple-toast {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-light);
+            padding: 12px 20px;
+            border-radius: 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            box-shadow: var(--shadow-md);
+            animation: toastPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes toastPop {
+            from { transform: translateY(12px) scale(0.95); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        /* Settings Sub-sections */
+        .settings-group {
+            margin-bottom: 28px;
+        }
+
+        .settings-group h3 {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .settings-row:last-child { border-bottom: none; }
+
+        .settings-label {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .settings-label span {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .settings-label small {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        @media (max-width: 900px) {
+            .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+            .app-header { flex-direction: column; gap: 12px; padding: 14px 20px; }
+            .workspace { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="toast-shelf" id="toastShelf"></div>
+
+    <!-- Modal -->
+    <div class="apple-modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+        <div class="apple-modal" id="modalContent"></div>
+    </div>
+
+    <!-- Apple Navigation Bar -->
+    <header class="app-header">
+        <div class="header-brand">
+            <div class="brand-icon">C</div>
+            <div class="brand-title-group">
+                <div class="brand-title">
+                    COLONY <span class="roman-tag">V</span>
+                </div>
+                <div class="brand-subtitle">Autonomous Video Intelligence & Media Production</div>
+            </div>
+        </div>
+
+        <!-- Segmented Navigation Picker -->
+        <div class="segmented-control">
+            <button class="active" onclick="switchView('dashboard', this)">
+                📊 Dashboard
+            </button>
+            <button onclick="switchView('settings', this)">
+                ⚙️ Setup & Settings
+            </button>
+            <button onclick="switchView('guide', this)">
+                📖 Manual
+            </button>
+        </div>
+
+        <div class="status-badge">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">System Idle</span>
+        </div>
+    </header>
+
+    <!-- Workspace -->
+    <main class="workspace">
+
+        <!-- ================= VIEW 1: MAIN DASHBOARD ================= -->
+        <div id="view-dashboard" class="view-content active">
+
+            <!-- Hero Execution Control Bar -->
+            <div class="control-hero-card">
+                <div class="hero-left">
+                    <div class="input-group">
+                        <label>Stories:</label>
+                        <select id="storyCount" class="apple-select">
+                            <option value="1">1 Story</option>
+                            <option value="2" selected>2 Stories</option>
+                            <option value="3">3 Stories</option>
+                            <option value="5">5 Stories</option>
+                        </select>
+                    </div>
+
+
+                </div>
+
+                <div style="display:flex; gap:10px;">
+                    <button id="startBtn" class="btn-apple btn-apple-primary" onclick="startPipeline()">
+                        ⚡ Run Pipeline
+                    </button>
+                    <button id="stopBtn" class="btn-apple btn-apple-danger" onclick="stopPipeline()" disabled>
+                        Stop
+                    </button>
+                </div>
+            </div>
+
+            <!-- Progress & Stage Tracker -->
+            <div id="progressSection" style="display:none; margin-bottom: 24px;">
+                <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">
+                    <span id="stepText">Initializing...</span>
+                    <span id="elapsedText">Elapsed: 00:00</span>
+                </div>
+                <div style="width:100%; height:6px; background:#e5e5ea; border-radius:3px; overflow:hidden;">
+                    <div id="progressFill" style="height:100%; width:0%; background:var(--apple-blue); transition:width 0.3s ease;"></div>
+                </div>
+                <div class="step-tracker">
+                    <div class="tracker-node" id="step-monitor">1. Monitor</div>
+                    <div class="tracker-node" id="step-research">2. Research</div>
+                    <div class="tracker-node" id="step-script">3. Scriptwriter</div>
+                    <div class="tracker-node" id="step-render">4. Producer</div>
+                    <div class="tracker-node" id="step-publish">5. Publisher</div>
+                </div>
+            </div>
+
+            <!-- At-a-Glance Stat Cards -->
+            <div class="grid-row grid-4" style="margin-bottom: 24px;">
+                <div class="apple-card">
+                    <div class="card-title">Total Runs</div>
+                    <div class="card-big-value loading" id="statRuns">—</div>
+                    <div class="card-subtext">Pipeline Executions</div>
+                </div>
+                <div class="apple-card">
+                    <div class="card-title">Stories Processed</div>
+                    <div class="card-big-value loading" id="statStories">—</div>
+                    <div class="card-subtext">Researched & Scripted</div>
+                </div>
+                <div class="apple-card">
+                    <div class="card-title">Videos Rendered</div>
+                    <div class="card-big-value loading" id="statRendered">—</div>
+                    <div class="card-subtext">1080x1920 MP4 Shorts</div>
+                </div>
+                <div class="apple-card">
+                    <div class="card-title">Est. Cost / Storage</div>
+                    <div class="card-big-value loading" id="statCost">—</div>
+                    <div class="card-subtext" id="statStorage">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Connected YouTube Analytics Card -->
+            <div class="apple-card" style="margin-bottom: 24px;" id="youtubeDashboardCard">
+                <div class="card-header">
+                    <div class="card-title">YouTube Channel Analytics</div>
+                    <span class="badge badge-blue" id="ytConnectionBadge">Loading...</span>
+                </div>
+                <div id="ytOverviewContent">
+                    <div class="loading-row">
+                        <div class="loading-spinner"></div>
+                        <span>Fetching YouTube channel data...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Execution Logs Console Drawer -->
+            <div class="terminal-wrapper" style="margin-bottom: 24px;">
+                <div class="terminal-header">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div class="terminal-dots">
+                            <div class="terminal-dot" style="background:#ff5f56"></div>
+                            <div class="terminal-dot" style="background:#ffbd2e"></div>
+                            <div class="terminal-dot" style="background:#27c93f"></div>
+                        </div>
+                        <span style="color:#a1a1a6; font-size:12px; font-weight:600;">COLONY Execution Terminal Output</span>
+                    </div>
+                    <button class="btn-apple btn-apple-secondary btn-sm" onclick="toggleTerminalExpand()" style="color:#ffffff; background:rgba(255,255,255,0.1)">
+                        ↔ Expand / Contract
+                    </button>
+                </div>
+                <div class="terminal-body" id="liveLog">
+                    <div class="log-entry success">Console initialized. Ready for pipeline execution.</div>
+                </div>
+            </div>
+
+            <!-- Past Runs History Table -->
+            <div class="apple-card" style="margin-bottom: 24px;">
+                <div class="card-header">
+                    <div class="card-title">Past Pipeline Executions</div>
+                </div>
+                <table class="apple-table">
+                    <thead>
+                        <tr>
+                            <th>Run ID</th>
+                            <th>Stories</th>
+                            <th>Researched</th>
+                            <th>Scripted</th>
+                            <th>Rendered</th>
+                            <th>File Size</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="runsTable"></tbody>
+                </table>
+                <div id="runsEmpty" style="text-align:center; padding:30px; color:var(--text-tertiary); display:none">No historical runs recorded.</div>
+            </div>
+
+            <!-- Analytics Charts Grid -->
+            <div class="grid-row grid-2">
+                <div class="apple-card">
+                    <div class="card-title" style="margin-bottom:16px;">Stories Processed per Run</div>
+                    <div style="height:240px; position:relative;"><canvas id="storiesChart"></canvas></div>
+                </div>
+                <div class="apple-card">
+                    <div class="card-title" style="margin-bottom:16px;">Video Render File Sizes (MB)</div>
+                    <div style="height:240px; position:relative;"><canvas id="sizesChart"></canvas></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ================= VIEW 2: SETUP & SETTINGS ================= -->
+        <div id="view-settings" class="view-content">
+
+            <div class="grid-row grid-1-2">
+                <!-- Side Settings Sub-Nav -->
+                <div class="apple-card" style="height:fit-content;">
+                    <div class="card-title" style="margin-bottom:14px;">Settings & Setup</div>
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('niche-setup')">🎯 Niche & Content Focus</button>
+                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('rss-setup')">🛰️ RSS Feed Sources</button>
+                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('sched-setup')">⏱️ Auto Scheduler</button>
+                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('yt-setup')">📺 YouTube OAuth</button>
+                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('alert-setup')">🔔 Alerts & Webhooks</button>
+                    </div>
+                </div>
+
+                <!-- Main Settings Form Area -->
+                <div style="display:flex; flex-direction:column; gap:24px;">
+
+                    <!-- 1. Target Niche & Channel Settings -->
+                    <div class="apple-card" id="niche-setup">
+                        <div class="card-title" style="margin-bottom:16px;">Channel Niche & Target Topic Focus</div>
+                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Customize the target news domains and topic categories your pipeline focuses on.</p>
+
+                        <div class="settings-group">
+                            <div class="settings-row">
+                                <div class="settings-label">
+                                    <span>Target Categories</span>
+                                    <small>Enable topics for feed parsing & scoring</small>
+                                </div>
+                                <div style="display:flex; gap:12px;">
+                                    <label style="font-size:13px"><input type="checkbox" id="catAI" checked style="accent-color:var(--apple-blue)"> Artificial Intelligence</label>
+                                    <label style="font-size:13px"><input type="checkbox" id="catTech" checked style="accent-color:var(--apple-blue)"> Tech & Gadgets</label>
+                                    <label style="font-size:13px"><input type="checkbox" id="catCrypto" checked style="accent-color:var(--apple-blue)"> Crypto & Web3</label>
+                                </div>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-label">
+                                    <span>Brand Tone / Persona</span>
+                                    <small>Scriptwriter style guide</small>
+                                </div>
+                                <select class="apple-select" id="brandVoice">
+                                    <option value="engaging_news">Engaging & Fast-Paced Tech News</option>
+                                    <option value="deep_dive">Analytical Deep Dive</option>
+                                    <option value="breaking">Urgent Breaking Brief</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. RSS Feeds Setup -->
+                    <div class="apple-card" id="rss-setup">
+                        <div class="card-title" style="margin-bottom:16px;">RSS Feed Sources</div>
+                        <div id="feedsList" style="margin-bottom:16px;"></div>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn-apple btn-apple-secondary btn-sm" onclick="addFeed()">+ Add Feed</button>
+                            <button class="btn-apple btn-apple-primary btn-sm" onclick="saveFeeds()">Save Feeds</button>
+                        </div>
+                    </div>
+
+                    <!-- 3. Scheduler Setup -->
+                    <div class="apple-card" id="sched-setup">
+                        <div class="card-title" style="margin-bottom:16px;">Automated Pipeline Scheduler</div>
+                        <div class="settings-group">
+                            <div class="settings-row">
+                                <div class="settings-label">
+                                    <span>Enable Cron Execution</span>
+                                    <small>Runs pipeline periodically in the background</small>
+                                </div>
+                                <input type="checkbox" id="schedEnabled" style="width:20px; height:20px; accent-color:var(--apple-blue)">
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-label"><span>Interval Frequency</span></div>
+                                <select id="schedInterval" class="apple-select">
+                                    <option value="1">Every 1 Hour</option>
+                                    <option value="3">Every 3 Hours</option>
+                                    <option value="6" selected>Every 6 Hours</option>
+                                    <option value="12">Every 12 Hours</option>
+                                    <option value="24">Every 24 Hours</option>
+                                </select>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-label"><span>Stories Per Run</span></div>
+                                <select id="schedStories" class="apple-select">
+                                    <option value="1">1 Story</option>
+                                    <option value="2" selected>2 Stories</option>
+                                    <option value="3">3 Stories</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn-apple btn-apple-primary btn-sm" onclick="saveScheduler()">Save Schedule</button>
+                        <div id="schedStatus" style="font-size:12px; color:var(--text-secondary); margin-top:10px;"></div>
+                    </div>
+
+                    <!-- 4. YouTube Setup -->
+                    <div class="apple-card" id="yt-setup">
+                        <div class="card-title" style="margin-bottom:16px;">YouTube OAuth Credentials</div>
+                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px">Upload client_secret.json to enable YouTube Shorts publishing.</p>
+                        <textarea id="ytSecretInput" placeholder="Paste client_secret.json contents here..." class="apple-input" style="width:100%; height:100px; font-family:monospace; margin-bottom:12px;"></textarea>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn-apple btn-apple-primary btn-sm" onclick="uploadYouTubeSecret()">Save Credentials</button>
+                            <button class="btn-apple btn-apple-secondary btn-sm" id="ytAuthBtn" onclick="startYouTubeAuth()" disabled>Connect with Google</button>
+                            <button class="btn-apple btn-apple-danger btn-sm" id="ytDisconnectBtn" onclick="disconnectYouTube()" style="display:none">Disconnect</button>
+                        </div>
+                        <div id="ytStatus" style="font-size:12px; color:var(--text-secondary); margin-top:10px;"></div>
+                    </div>
+
+                    <!-- 5. Alerts & Notifications -->
+                    <div class="apple-card" id="alert-setup">
+                        <div class="card-title" style="margin-bottom:16px;">Alerts & Webhooks</div>
+                        <div class="settings-group">
+                            <div class="settings-row">
+                                <div class="settings-label"><span>Slack Webhook URL</span></div>
+                                <input id="slackWebhook" type="text" placeholder="https://hooks.slack.com/services/..." class="apple-input" style="width:320px;">
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-label"><span>Email Recipient</span></div>
+                                <input id="emailTo" type="email" placeholder="user@company.com" class="apple-input" style="width:320px;">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn-apple btn-apple-primary btn-sm" onclick="saveNotifications()">Save Alerts</button>
+                            <button class="btn-apple btn-apple-secondary btn-sm" onclick="testNotification()">Test Integration</button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ================= VIEW 3: MANUAL & GUIDE ================= -->
+        <div id="view-guide" class="view-content">
+            <div class="apple-card">
+                <div class="card-title" style="margin-bottom:12px;">COLONY V System Architecture</div>
+                <p style="font-size:14px; color:var(--text-secondary); line-height:1.6; margin-bottom:20px;">
+                    COLONY V is an autonomous video production agent that converts breaking RSS news into high-impact vertical short videos (1080x1920) and publishes them directly to YouTube.
+                </p>
+                <div class="grid-row grid-3">
+                    <div style="background:#f5f5f7; padding:18px; border-radius:14px;">
+                        <strong style="color:var(--text-primary); font-size:14px;">1. Monitor & Research</strong>
+                        <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Scans RSS feeds, scores news priority, and extracts verified claims with self-healing scrapers.</p>
+                    </div>
+                    <div style="background:#f5f5f7; padding:18px; border-radius:14px;">
+                        <strong style="color:var(--text-primary); font-size:14px;">2. Script & Produce</strong>
+                        <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Generates hook/body/CTA narration scripts, TTS voiceovers, SFX, and Remotion renders.</p>
+                    </div>
+                    <div style="background:#f5f5f7; padding:18px; border-radius:14px;">
+                        <strong style="color:var(--text-primary); font-size:14px;">3. Publish & Learn</strong>
+                        <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Publishes to YouTube Data API and analyzes channel metrics to tune future runs.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+    let ws = null;
+    let wsRetries = 0;
+    let charts = {};
+    let runStartTime = null;
+    let timerInterval = null;
+
+    // View Switching
+    function switchView(viewName, btn) {
+        document.querySelectorAll('.view-content').forEach(v => v.classList.remove('active'));
+        document.querySelectorAll('.segmented-control button').forEach(b => b.classList.remove('active'));
+        document.getElementById('view-' + viewName).classList.add('active');
+        if (btn) btn.classList.add('active');
+
+        if (viewName === 'dashboard') {
+            loadRuns();
+            loadAnalytics();
+            loadYouTube();
+            loadCosts();
+        } else if (viewName === 'settings') {
+            loadFeeds();
+            loadScheduler();
+        }
+    }
+
+    function scrollToSection(id) {
+        document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function toggleTerminalExpand() {
+        const body = document.getElementById('liveLog');
+        body.classList.toggle('expanded');
+    }
+
+    // Toast Shelf
+    function toast(msg, type = 'info') {
+        const shelf = document.getElementById('toastShelf');
+        const el = document.createElement('div');
+        el.className = 'apple-toast';
+        el.textContent = msg;
+        shelf.appendChild(el);
+        setTimeout(() => el.remove(), 3500);
+    }
+
+    // Modal
+    function openModal(html) {
+        document.getElementById('modalContent').innerHTML = html;
+        document.getElementById('modalOverlay').classList.add('open');
+    }
+    function closeModal() {
+        document.getElementById('modalOverlay').classList.remove('open');
+    }
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    // WebSocket Stream
+    function connectWS() {
+        ws = new WebSocket('ws://' + location.host + '/ws/logs');
+        ws.onmessage = function(e) {
+            const logBox = document.getElementById('liveLog');
+            const line = document.createElement('div');
+            line.className = 'log-entry';
+            if (e.data.includes('SUCCESS') || e.data.includes('OK')) line.classList.add('success');
+            if (e.data.includes('WARN')) line.classList.add('warning');
+            line.textContent = e.data;
+            logBox.appendChild(line);
+            logBox.scrollTop = logBox.scrollHeight;
+        };
+        ws.onopen = function() { wsRetries = 0; };
+        ws.onclose = function() {
+            const delay = Math.min(3000 * Math.pow(1.5, wsRetries), 30000);
+            wsRetries++;
+            setTimeout(connectWS, delay);
+        };
+    }
+
+    // Pipeline Controls
+    async function startPipeline() {
+        const stories = parseInt(document.getElementById('storyCount').value);
+        const resp = await fetch('/api/pipeline/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ stories, skip_publish: false })
+        });
+        if (resp.ok) {
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('liveLog').innerHTML = '';
+            runStartTime = Date.now();
+            startTimer();
+            toast('Pipeline started', 'info');
+            pollStatus();
+        } else {
+            const data = await resp.json();
+            toast(data.error || 'Failed to start', 'error');
+        }
+    }
+
+    async function stopPipeline() {
+        document.getElementById('stopBtn').disabled = true;
+        await fetch('/api/pipeline/stop', { method: 'POST' });
+        toast('Pipeline halting...', 'info');
+        pollStatus();
+    }
+
+    function startTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            if (!runStartTime) return;
+            const diff = Math.floor((Date.now() - runStartTime) / 1000);
+            const m = String(Math.floor(diff / 60)).padStart(2, '0');
+            const s = String(diff % 60).padStart(2, '0');
+            document.getElementById('elapsedText').textContent = `Elapsed: ${m}:${s}`;
+        }, 1000);
+    }
+
+    function stopTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+    }
+
+    // Poll Status
+    async function pollStatus() {
+        const resp = await fetch('/api/status');
+        const s = await resp.json();
+        const dot = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
+
+        if (s.running) {
+            dot.className = 'status-dot active';
+            text.textContent = 'Running (' + (s.current_step || '...') + ')';
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('progressFill').style.width = s.progress + '%';
+            document.getElementById('stepText').textContent = s.current_step + ' (' + s.stories_done + '/' + s.story_count + ' stories)';
+
+            ['monitor','research','script','render','publish'].forEach(step => {
+                const el = document.getElementById('step-' + step);
+                if (!el) return;
+                if (s.current_step && s.current_step.includes(step)) el.className = 'tracker-node active';
+                else if (isStepDone(step, s.current_step)) el.className = 'tracker-node done';
+                else el.className = 'tracker-node';
+            });
+            setTimeout(pollStatus, 2000);
+        } else {
+            dot.className = 'status-dot';
+            if (s.current_step === 'complete') {
+                text.textContent = 'System Complete';
+            } else if (s.current_step === 'stopped') {
+                text.textContent = 'Stopped';
+            } else {
+                text.textContent = 'System Idle';
+            }
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            stopTimer();
+            if (s.current_step === 'complete') {
+                toast('Pipeline completed!', 'info');
+                loadRuns();
+                loadAnalytics();
+            }
+        }
+    }
+
+    function isStepDone(step, current) {
+        const order = ['monitor','research','script','render','publish'];
+        const ci = current ? order.findIndex(s => current.includes(s)) : -1;
+        return order.indexOf(step) < ci;
+    }
+
+    // Load Runs
+    async function loadRuns() {
+        const resp = await fetch('/api/runs');
+        const data = await resp.json();
+        const tbody = document.getElementById('runsTable');
+        const empty = document.getElementById('runsEmpty');
+
+        if (data.runs.length === 0) {
+            tbody.innerHTML = '';
+            empty.style.display = 'block';
+            return;
+        }
+
+        empty.style.display = 'none';
+        tbody.innerHTML = data.runs.map(r => `
+            <tr class="clickable" onclick="showRunDetail('${r.run_id}')">
+                <td style="font-family:monospace; font-weight:600;">${esc(r.run_id)}</td>
+                <td>${r.stories}</td>
+                <td>${r.researched}</td>
+                <td>${r.scripted}</td>
+                <td>${r.rendered}</td>
+                <td>${r.video_size_mb} MB</td>
+                <td>${r.has_video ? '<span class="badge badge-green">Rendered</span>' : '<span class="badge badge-gray">Partial</span>'}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function showRunDetail(runId) {
+        const resp = await fetch('/api/run/' + runId);
+        const data = await resp.json();
+        if (data.error) { toast(data.error, 'error'); return; }
+
+        let html = `<div class="modal-title-row"><h2 style="font-size:20px; font-weight:800;">Run Detail: ${esc(runId)}</h2><button class="btn-apple btn-apple-secondary btn-sm" onclick="closeModal()">Close</button></div>`;
+        data.stories.forEach(s => {
+            html += `<div style="margin-bottom:16px; padding:18px; background:#f5f5f7; border-radius:14px;">`;
+            html += `<strong style="font-size:15px;">${esc((s.monitor||{}).title||'Unknown')}</strong>`;
+            if (s.monitor) {
+                html += `<div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Relevance: ${(s.monitor.relevance_score||0).toFixed(2)} | Novelty: ${(s.monitor.novelty_score||0).toFixed(2)} | Urgency: ${(s.monitor.urgency_score||0).toFixed(2)}</div>`;
+            }
+            if (s.research) {
+                html += `<details style="margin-top:8px"><summary style="cursor:pointer; color:var(--apple-blue); font-size:12px; font-weight:600">Research Claims (${(s.research.claims||[]).length})</summary><pre style="margin-top:6px; font-size:11px;">${esc(JSON.stringify(s.research, null, 2))}</pre></details>`;
+            }
+            if (s.script) {
+                html += `<details style="margin-top:8px"><summary style="cursor:pointer; color:var(--apple-green); font-size:12px; font-weight:600">Script Beats (${(s.script.suggested_visual_beats||[]).length})</summary><pre style="margin-top:6px; font-size:11px;">${esc(JSON.stringify(s.script, null, 2))}</pre></details>`;
+            }
+            html += `</div>`;
+        });
+        openModal(html);
+    }
+
+    // Analytics
+    async function loadAnalytics() {
+        const resp = await fetch('/api/analytics');
+        const data = await resp.json();
+        const statIds = ['statRuns', 'statStories', 'statRendered'];
+        statIds.forEach(id => {
+            const el = document.getElementById(id);
+            el.classList.remove('loading');
+        });
+        document.getElementById('statRuns').textContent = data.total_runs;
+        document.getElementById('statStories').textContent = data.total_stories;
+        document.getElementById('statRendered').textContent = data.total_rendered;
+        document.getElementById('statStorage').textContent = `${data.total_size_mb} MB used`;
+
+        if (charts.stories) charts.stories.destroy();
+        if (charts.sizes) charts.sizes.destroy();
+
+        charts.stories = new Chart(document.getElementById('storiesChart'), {
+            type: 'bar',
+            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories', data: data.runs.map(r=>r.stories), backgroundColor: '#0071e3', borderRadius:6 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
+        charts.sizes = new Chart(document.getElementById('sizesChart'), {
+            type: 'line',
+            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Size (MB)', data: data.runs.map(r=>r.size_mb), borderColor: '#af52de', fill: false }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
+    }
+
+    // YouTube
+    function showYouTubeLoading() {
+        const badge = document.getElementById('ytConnectionBadge');
+        const content = document.getElementById('ytOverviewContent');
+        badge.className = 'badge badge-blue';
+        badge.textContent = 'Loading...';
+        content.innerHTML = `
+            <div class="loading-row">
+                <div class="loading-spinner"></div>
+                <span>Fetching YouTube channel data...</span>
+            </div>
+            <div style="margin-top:16px; display:grid; grid-template-columns:repeat(4,1fr); gap:12px;">
+                <div class="skeleton-line" style="height:40px;"></div>
+                <div class="skeleton-line" style="height:40px;"></div>
+                <div class="skeleton-line" style="height:40px;"></div>
+                <div class="skeleton-line" style="height:40px;"></div>
+            </div>
+        `;
+    }
+
+    async function loadYouTube() {
+        showYouTubeLoading();
+        const resp = await fetch('/api/youtube');
+        const data = await resp.json();
+        const badge = document.getElementById('ytConnectionBadge');
+        const content = document.getElementById('ytOverviewContent');
+
+        if (!data.connected) {
+            badge.className = 'badge badge-gray';
+            badge.textContent = 'Not Connected';
+            const msg = esc(data.message || data.error || 'Connect YouTube OAuth credentials in Setup & Settings to view live subscriber metrics & video view performance.');
+            content.innerHTML = `<div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">${msg}</div>`;
+            document.getElementById('ytAuthBtn').disabled = false;
+            document.getElementById('ytDisconnectBtn').style.display = 'none';
+            return;
+        }
+
+        badge.className = 'badge badge-green';
+        badge.textContent = 'Connected';
+        document.getElementById('ytAuthBtn').disabled = true;
+        document.getElementById('ytDisconnectBtn').style.display = 'inline-flex';
+        document.getElementById('ytStatus').textContent = 'Connected & Syncing';
+
+        const ch = data.channel;
+        const an = data.analytics_30d || {};
+        content.innerHTML = `
+            <div class="grid-row grid-4" style="margin-bottom:16px;">
+                <div><small style="color:var(--text-secondary)">Subscribers</small><div style="font-size:22px; font-weight:800">${ch.subscribers.toLocaleString()}</div></div>
+                <div><small style="color:var(--text-secondary)">Total Views</small><div style="font-size:22px; font-weight:800">${ch.total_views.toLocaleString()}</div></div>
+                <div><small style="color:var(--text-secondary)">30-Day Watch Time</small><div style="font-size:22px; font-weight:800">${an.watch_time_minutes_30d !== undefined ? an.watch_time_minutes_30d + 'm' : 'N/A'}</div></div>
+                <div><small style="color:var(--text-secondary)">Videos Uploaded</small><div style="font-size:22px; font-weight:800">${ch.total_videos}</div></div>
+            </div>
+            <table class="apple-table">
+                <thead><tr><th>Video Title</th><th>Published</th><th>Views</th><th>Likes</th></tr></thead>
+                <tbody>
+                    ${data.videos.length ? data.videos.map(v => `
+                        <tr>
+                            <td><a href="https://youtube.com/watch?v=${esc(v.id)}" target="_blank" style="color:var(--apple-blue); font-weight:600">${esc(v.title)}</a></td>
+                            <td>${esc(v.published||'-')}</td>
+                            <td>${(v.views||0).toLocaleString()}</td>
+                            <td>${(v.likes||0).toLocaleString()}</td>
+                        </tr>
+                    `).join('') : '<tr><td colspan="4" style="text-align:center; color:var(--text-tertiary)">No videos published yet</td></tr>'}
+                </tbody>
+            </table>
+        `;
+    }
+
+    async function uploadYouTubeSecret() {
+        const input = document.getElementById('ytSecretInput').value.trim();
+        if (!input) return;
+        const resp = await fetch('/api/youtube/upload-secret', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ client_secret: input }) });
+        const data = await resp.json();
+        if (data.status === 'ok') { toast('Credentials saved', 'info'); document.getElementById('ytAuthBtn').disabled = false; }
+    }
+
+    async function startYouTubeAuth() {
+        const resp = await fetch('/api/youtube/auth', { method: 'POST' });
+        const data = await resp.json();
+        if (data.auth_url) {
+            window.open(data.auth_url, '_blank', 'width=600,height=700');
+            toast('Google OAuth window opened — sign in to authorize', 'info');
+
+            const handleAuthMessage = (event) => {
+                if (event.data === 'youtube_auth_complete') {
+                    window.removeEventListener('message', handleAuthMessage);
+                    toast('YouTube connected successfully!', 'success');
+                    setTimeout(loadYouTube, 1000);
+                }
+            };
+            window.addEventListener('message', handleAuthMessage);
+
+            let attempts = 0;
+            const pollTimer = setInterval(async () => {
+                attempts++;
+                const check = await fetch('/api/youtube');
+                const res = await check.json();
+                if (res.connected) {
+                    clearInterval(pollTimer);
+                    window.removeEventListener('message', handleAuthMessage);
+                    loadYouTube();
+                    toast('YouTube channel synced!', 'success');
+                } else if (attempts > 15) {
+                    clearInterval(pollTimer);
+                }
+            }, 2500);
+        } else {
+            toast(data.error || 'Auth failed', 'error');
+        }
+    }
+
+    async function disconnectYouTube() {
+        if (!confirm('Disconnect YouTube?')) return;
+        await fetch('/api/youtube/disconnect', { method: 'DELETE' });
+        loadYouTube();
+    }
+
+    // Costs
+    async function loadCosts() {
+        const resp = await fetch('/api/costs');
+        const data = await resp.json();
+        const el = document.getElementById('statCost');
+        el.classList.remove('loading');
+        el.textContent = `$${data.estimated_cost_usd.toFixed(4)}`;
+    }
+
+    // Feeds
+    let feedData = [];
+    async function loadFeeds() {
+        const resp = await fetch('/api/feeds');
+        const data = await resp.json();
+        feedData = data.feeds;
+        renderFeeds();
+    }
+
+    function renderFeeds() {
+        const el = document.getElementById('feedsList');
+        if (!feedData.length) { el.innerHTML = '<p style="font-size:13px; color:var(--text-tertiary)">No feeds configured</p>'; return; }
+        el.innerHTML = feedData.map((f, i) => `
+            <div class="feed-item">
+                <input type="text" value="${esc(f.url)}" onchange="feedData[${i}].url=this.value" class="apple-input">
+                <select onchange="feedData[${i}].category=this.value" class="apple-select">
+                    <option value="ai" ${f.category==='ai'?'selected':''}>AI</option>
+                    <option value="tech" ${f.category==='tech'?'selected':''}>Tech</option>
+                    <option value="crypto" ${f.category==='crypto'?'selected':''}>Crypto</option>
+                </select>
+                <button class="btn-apple btn-apple-danger btn-sm" onclick="feedData.splice(${i},1);renderFeeds()">Remove</button>
+            </div>
+        `).join('');
+    }
+
+    function addFeed() { feedData.push({url:'', category:'ai'}); renderFeeds(); }
+    async function saveFeeds() {
+        await fetch('/api/feeds', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({feeds: feedData}) });
+        toast('Feeds saved', 'info');
+    }
+
+    // Scheduler
+    async function loadScheduler() {
+        const resp = await fetch('/api/scheduler');
+        const data = await resp.json();
+        document.getElementById('schedEnabled').checked = data.enabled;
+        document.getElementById('schedInterval').value = data.interval_hours;
+        document.getElementById('schedStories').value = data.stories;
+        document.getElementById('schedStatus').textContent = data.enabled ? 'Active schedule' : 'Scheduler disabled';
+    }
+
+    async function saveScheduler() {
+        const body = {
+            enabled: document.getElementById('schedEnabled').checked,
+            interval_hours: parseInt(document.getElementById('schedInterval').value),
+            stories: parseInt(document.getElementById('schedStories').value),
+            sandbox: true
+        };
+        await fetch('/api/scheduler', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+        toast('Schedule saved', 'info');
+    }
+
+    // Notifications
+    async function saveNotifications() {
+        const body = { slack_webhook: document.getElementById('slackWebhook').value, email_to: document.getElementById('emailTo').value };
+        await fetch('/api/notifications', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+        toast('Alerts saved', 'info');
+    }
+
+    async function testNotification() {
+        await fetch('/api/notifications/test', { method: 'POST' });
+        toast('Notification test triggered', 'info');
+    }
+
+    // Init
+    connectWS();
+    loadRuns();
+    loadAnalytics();
+    loadYouTube();
+    loadCosts();
+    pollStatus();
+    </script>
+</body>
+</html>

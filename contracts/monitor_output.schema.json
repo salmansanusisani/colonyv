@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MonitorOutput",
+  "description": "Output from the Monitor Agent: scored and ranked story candidates from RSS feeds.",
+  "type": "object",
+  "required": [
+    "story_id",
+    "title",
+    "relevance_score",
+    "novelty_score",
+    "urgency_score",
+    "recommended_format",
+    "sources"
+  ],
+  "properties": {
+    "story_id": {
+      "type": "string",
+      "description": "Unique identifier for this story (slug or hash)."
+    },
+    "title": {
+      "type": "string",
+      "description": "Headline or title of the story."
+    },
+    "relevance_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "How relevant this story is to the target audience (0-1)."
+    },
+    "novelty_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "How novel/unique this story is compared to recent coverage (0-1)."
+    },
+    "urgency_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "How time-sensitive this story is (0-1)."
+    },
+    "recommended_format": {
+      "type": "string",
+      "description": "Recommended video format for this story."
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "title"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL of the source article."
+          },
+          "title": {
+            "type": "string",
+            "description": "Title of the source article."
+          }
+        }
+      },
+      "description": "List of source URLs for this story."
+    }
+  },
+  "additionalProperties": false
+}

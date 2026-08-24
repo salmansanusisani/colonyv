@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AnalystOutput",
+  "description": "Output from the Analyst Agent: learned signals from pipeline performance.",
+  "type": "object",
+  "required": [
+    "run_id",
+    "timestamp",
+    "stories_analyzed",
+    "learned_signals",
+    "recommendations"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "Pipeline run identifier."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the analysis was performed."
+    },
+    "stories_analyzed": {
+      "type": "integer",
+      "description": "Number of stories analyzed."
+    },
+    "learned_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["signal_type", "description", "confidence", "actionable"],
+        "properties": {
+          "signal_type": {
+            "type": "string",
+            "enum": ["topic_trend", "source_quality", "engagement_pattern", "content_gap", "timing_insight"],
+            "description": "Type of learned signal."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the signal."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Confidence in this signal."
+          },
+          "actionable": {
+            "type": "boolean",
+            "description": "Whether this signal can directly influence future pipeline runs."
+          },
+          "recommended_action": {
+            "type": "string",
+            "description": "Suggested action to take based on this signal."
+          }
+        }
+      },
+      "description": "Learned signals derived from pipeline performance."
+    },
+    "recommendations": {
+      "type": "object",
+      "properties": {
+        "monitor_adjustments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Suggested changes to RSS feed selection or scoring."
+        },
+        "scriptwriter_adjustments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Suggested changes to script generation."
+        },
+        "producer_adjustments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Suggested changes to video rendering."
+        },
+        "priority_topics": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Topics to prioritize in future runs."
+        },
+        "topics_to_avoid": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Topics to deprioritize."
+        }
+      },
+      "description": "Concrete recommendations for pipeline adjustments."
+    }
+  },
+  "additionalProperties": false
+}

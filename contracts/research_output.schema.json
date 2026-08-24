@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResearchOutput",
+  "description": "Output from the Research Agent: verified claims, sources, and contradictions for a single story.",
+  "type": "object",
+  "required": [
+    "story_id",
+    "summary",
+    "claims",
+    "sources",
+    "contradictions",
+    "confidence",
+    "recommended_angle",
+    "what_is_confirmed",
+    "what_is_uncertain",
+    "publication_date",
+    "primary_source",
+    "secondary_sources"
+  ],
+  "properties": {
+    "story_id": {
+      "type": "string",
+      "description": "Matches the story_id from MonitorOutput."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Concise summary of the story based on research."
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text", "source_index", "verified"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The factual claim extracted from a source."
+          },
+          "source_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Index into the sources array that backs this claim."
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Whether this claim has been cross-referenced with another source."
+          }
+        }
+      },
+      "description": "Factual claims extracted from sources."
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["outlet", "date", "role", "url"],
+        "properties": {
+          "outlet": {
+            "type": "string",
+            "description": "Name of the publication or outlet."
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Publication date (YYYY-MM-DD)."
+          },
+          "role": {
+            "type": "string",
+            "enum": ["primary", "secondary", "corroboration"],
+            "description": "Role of this source in the research."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL of the source article."
+          }
+        }
+      },
+      "description": "Sources consulted during research."
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "likely_explanation", "resolution_for_script"],
+        "properties": {
+          "issue": {
+            "type": "string",
+            "description": "Description of the contradiction between sources."
+          },
+          "likely_explanation": {
+            "type": "string",
+            "description": "Best guess at why the contradiction exists."
+          },
+          "resolution_for_script": {
+            "type": "string",
+            "description": "How the scriptwriter should handle this contradiction."
+          }
+        }
+      },
+      "description": "Contradictions found between sources."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Overall confidence level in the research findings."
+    },
+    "recommended_angle": {
+      "type": "string",
+      "description": "Suggested narrative angle for the script."
+    },
+    "what_is_confirmed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Facts confirmed by multiple sources."
+    },
+    "what_is_uncertain": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Facts that could not be fully verified."
+    },
+    "publication_date": {
+      "type": "string",
+      "format": "date",
+      "description": "When the original story was published (YYYY-MM-DD)."
+    },
+    "primary_source": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of the primary source."
+    },
+    "secondary_sources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uri"
+      },
+      "description": "URLs of secondary corroborating sources."
+    }
+  },
+  "additionalProperties": false
+}

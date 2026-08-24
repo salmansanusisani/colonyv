@@ -1,0 +1,29 @@
+{
+  "hook": "OpenAI just released GPT-5 and it can write its own AI models.",
+  "body": "The new model introduces recursive self-improvement capabilities.",
+  "cta": "Subscribe for more AI news coverage.",
+  "estimated_duration": 25,
+  "format": "mechanism-diagram explainer",
+  "claims_used": [
+    "GPT-5 released August 2026",
+    "Recursive self-improvement feature",
+    "Available via API"
+  ],
+  "suggested_visual_beats": [
+    {
+      "name": "beat_01_announcement",
+      "narration_text": "OpenAI announced GPT-5 at their annual developer conference in San Francisco. The model represents a fundamental shift in AI capabilities.",
+      "beat_type": "kinetic_text"
+    },
+    {
+      "name": "beat_02_comparison",
+      "narration_text": "GPT-4 could generate code. GPT-5 can generate entire ML pipelines from a natural language description.",
+      "beat_type": "stat_reveal"
+    },
+    {
+      "name": "beat_03_mechanism",
+      "narration_text": "The recursive improvement loop works by having the model evaluate its own outputs, identify weaknesses, and generate improved versions autonomously.",
+      "beat_type": "diagram"
+    }
+  ]
+}

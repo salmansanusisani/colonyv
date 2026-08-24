@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProductionOutput",
+  "description": "Output from the Producer: metadata about a rendered video.",
+  "type": "object",
+  "required": [
+    "asset_url",
+    "format",
+    "duration",
+    "brand_validation",
+    "render_status"
+  ],
+  "properties": {
+    "asset_url": {
+      "type": "string",
+      "description": "Path or URL to the rendered video file."
+    },
+    "format": {
+      "type": "string",
+      "description": "Video format (e.g. 'mp4', '1080p')."
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Actual rendered video duration in seconds."
+    },
+    "brand_validation": {
+      "type": "object",
+      "required": ["passed", "issues"],
+      "properties": {
+        "passed": {
+          "type": "boolean",
+          "description": "Whether the video passed brand validation checks."
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of brand validation issues found (empty if passed)."
+        }
+      },
+      "description": "Brand validation results."
+    },
+    "render_status": {
+      "type": "string",
+      "enum": ["success", "failed", "partial"],
+      "description": "Status of the render operation."
+    }
+  },
+  "additionalProperties": false
+}
