@@ -306,7 +306,6 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
         "ContentVideo",
         output,
         "--concurrency=4",
-        "--gl=angle-egl",
     ]
     if Path(chromium_path).exists():
         remotion_cmd.extend(["--browser-executable", chromium_path])
