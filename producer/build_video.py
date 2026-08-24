@@ -305,7 +305,8 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
         "src/index.ts",
         "ContentVideo",
         output,
-        "--port", "3123",
+        "--concurrency=4",
+        "--gl=angle-egl",
     ]
     if Path(chromium_path).exists():
         remotion_cmd.extend(["--browser-executable", chromium_path])
@@ -313,11 +314,9 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
     result = subprocess.run(
         remotion_cmd,
         cwd=str(PRODUCER_DIR),
-        capture_output=True, text=True,
     )
 
     if result.returncode != 0:
-        print(f"  Remotion stderr:\n{result.stderr[-2000:]}", file=sys.stderr)
         raise RuntimeError(f"Remotion render failed with code {result.returncode}")
 
     print(f"\nDone! Video rendered to: {output}")

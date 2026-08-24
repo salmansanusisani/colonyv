@@ -140,16 +140,18 @@ Write a script with exactly these parts:
 3. CTA (1 sentence): Subscribe/follow call-to-action. Max 15 words.
 
 CRITICAL RULES:
-- Total script word count: 150-250 words
+- Total script word count: 80-120 words
 - Use US English, no markdown, no special characters
 - Do NOT hallucinate stats. Only use claims from the research above.
 - The body beats will be rendered as separate visual scenes
+- Keep total video under 60 seconds: 3-4 seconds hook, 20-30 seconds body, 5 seconds CTA
+- Max 3 visual beats in the body
 
 Return a JSON object with:
 - hook: string (opening line)
 - body: string (full body text, beats separated by " | " delimiter)
 - cta: string (closing call-to-action)
-- estimated_duration: number (total seconds, 30-45)
+- estimated_duration: number (total seconds, 25-40)
 - format: string (e.g. "stat-heavy explainer", "mechanism-diagram explainer", "news brief")
 - claims_used: array of strings (which claims from research are used)
 - claims_not_used: array of strings (which claims were excluded)
