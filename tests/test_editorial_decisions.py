@@ -24,10 +24,10 @@ def test_weak_research_retries_then_stops():
     assert stop["decision"] == "stop"
 
 
-def test_medium_confidence_requires_approval():
+def test_medium_confidence_publishes_autonomously():
     review = evaluate_publication_gate("medium", 0, 0, False)
     publish = evaluate_publication_gate("medium", 0, 0, True)
-    assert review["decision"] == "review"
+    assert review["decision"] == "publish"
     assert publish["decision"] == "publish"
 
 

@@ -86,34 +86,6 @@ MODEL_PROVIDER_CATALOG = {
             "gemini/gemini-2.5-pro",
         ],
     },
-    "groq": {
-        "label": "Groq",
-        "key_env": "GROQ_API_KEY",
-        "models": [
-            "groq/openai/gpt-oss-120b",
-            "groq/llama-3.3-70b-versatile",
-            "groq/llama-3.1-8b-instant",
-        ],
-    },
-    "openai": {
-        "label": "OpenAI-compatible",
-        "key_env": "OPENAI_API_KEY",
-        "models": [
-            "openai/gpt-4o-mini",
-            "openai/gpt-4.1-mini",
-            "openai/gpt-4o",
-        ],
-    },
-    "anthropic": {
-        "label": "Anthropic / Claude",
-        "key_env": "ANTHROPIC_API_KEY",
-        "models": [
-            "anthropic/claude-sonnet-4-20250514",
-            "anthropic/claude-3-7-sonnet-latest",
-            "anthropic/claude-3-5-sonnet-latest",
-            "anthropic/claude-3-5-haiku-latest",
-        ],
-    },
 }
 
 
@@ -133,10 +105,11 @@ def load_settings() -> dict:
     # Migrate the original single-key shape without exposing or losing it.
     legacy_key = settings["model"].pop("api_key", "")
     if legacy_key:
-        settings["model"].setdefault("api_keys", {})[settings["model"].get("provider", "groq")] = legacy_key
+        settings["model"].setdefault("api_keys", {})["gemini"] = legacy_key
     settings["model"].setdefault("api_keys", {})
-    if os.environ.get("GROQ_API_KEY") and not settings["model"]["api_keys"].get("groq"):
-        settings["model"]["api_keys"]["groq"] = os.environ["GROQ_API_KEY"]
+    settings["model"]["provider"] = "gemini"
+    settings["model"]["model_id"] = os.environ.get("COLONY_MODEL_ID", "gemini/gemini-3.5-flash")
+    settings["model"]["api_keys"] = {"gemini": settings["model"].get("api_keys", {}).get("gemini", "")}
     return settings
 
 
@@ -267,6 +240,23 @@ async def api_status():
         "uptime": time.time() - APP_STARTED_AT,
         "next_run": scheduler_config.get("next_run") if "scheduler_config" in globals() else None,
     }
+
+
+@app.post("/api/agent/invoke")
+async def api_agent_invoke(request: Request):
+    body = await request.json()
+    message = str(body.get("message", "")).strip()
+    if not message:
+        return JSONResponse({"error": "message is required"}, 400)
+    from colonyv_agent.invoke import invoke_editorial_director
+
+    result = await invoke_editorial_director(message)
+    if CLOUD_STATE:
+        CLOUD_STATE.save_run(
+            f"agent-{result['session_id']}",
+            {"type": "adk_invocation", "message": message, **result},
+        )
+    return result
 
 
 @app.get("/api/runs")
@@ -452,15 +442,7 @@ async def api_models(provider: str = ""):
     key = settings["model"].get("api_keys", {}).get(provider, "")
     try:
         import requests
-        if provider in {"groq", "openai"} and key:
-            base_url = "https://api.groq.com/openai/v1/models" if provider == "groq" else "https://api.openai.com/v1/models"
-            response = requests.get(base_url, headers={"Authorization": f"Bearer {key}"}, timeout=10)
-            response.raise_for_status()
-            discovered = [str(item.get("id")) for item in response.json().get("data", []) if item.get("id")]
-            if discovered:
-                prefix = "groq/" if provider == "groq" else "openai/"
-                models = [item if item.startswith(prefix) else f"{prefix}{item}" for item in discovered]
-        elif provider == "gemini" and key:
+        if provider == "gemini" and key:
             response = requests.get(
                 "https://generativelanguage.googleapis.com/v1beta/models",
                 params={"key": key}, timeout=10,
@@ -881,20 +863,19 @@ async def run_pipeline(stories: int, skip_publish: bool):
         log("Step 1/5: Scanning RSS feeds...")
 
         py_exec = get_python_exec()
-        provider = settings["model"].get("provider", "groq")
-        provider_key = settings["model"].get("api_keys", {}).get(provider, "")
+        provider = "gemini"
+        provider_key = settings["model"].get("api_keys", {}).get("gemini", "")
         model_env = {
             **os.environ,
-            "GROQ_API_KEY": provider_key if provider == "groq" else GROQ_API_KEY,
-            "COLONY_MODEL_ID": settings["model"].get("model_id", "groq/openai/gpt-oss-120b"),
+            "COLONY_MODEL_ID": settings["model"].get("model_id", "gemini/gemini-3.5-flash"),
+            "COLONYV_GEMINI_MODEL": settings["model"].get("model_id", "gemini/gemini-3.5-flash").removeprefix("gemini/"),
             "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
             "COLONY_API_KEY": provider_key,
             "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
         }
-        if provider == "anthropic":
-            model_env["ANTHROPIC_API_KEY"] = provider_key
-        elif provider == "gemini":
+        if provider_key:
             model_env["GEMINI_API_KEY"] = provider_key
+            model_env["GOOGLE_API_KEY"] = provider_key
         result = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: run_cancellable_subprocess(

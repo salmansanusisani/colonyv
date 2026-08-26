@@ -35,7 +35,7 @@ DEFAULT_FEEDS = [
 
 FEEDS_PATH = Path(__file__).resolve().parent / "feeds.json"
 
-LLM_MODEL_ID = os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b")
+LLM_MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
 
@@ -90,14 +90,7 @@ def fetch_entries(feeds, max_per_feed=10):
 
 
 def score_all(entries, api_key):
-    from strands import Agent
-    from strands.models.litellm import LiteLLMModel
-
-    model = LiteLLMModel(
-        client_args={"api_key": api_key},
-        model_id=LLM_MODEL_ID,
-        params={"max_tokens": LLM_MAX_TOKENS},
-    )
+    from colonyv_agent.gemini import generate_json
 
     entries_text = ""
     for i, e in enumerate(entries):
@@ -125,18 +118,7 @@ Example:
 
     for attempt in range(MAX_RETRIES):
         try:
-            agent = Agent(model=model, tools=[])
-            result = agent(prompt)
-            text = str(result).strip()
-
-            if "```" in text:
-                parts = text.split("```")
-                text = parts[1]
-                if text.startswith("json"):
-                    text = text[4:]
-                text = text.strip()
-
-            scores_list = json.loads(text)
+            scores_list = generate_json(prompt)
             if not isinstance(scores_list, list):
                 scores_list = [scores_list]
 
@@ -201,11 +183,11 @@ def main():
     parser.add_argument("--seen-file", type=str,
                         default=str(PROJECT_ROOT / "agents" / "monitor" / "seen.json"))
     parser.add_argument("--api-key", type=str,
-                        default=os.environ.get("COLONY_API_KEY") or os.environ.get("GROQ_API_KEY", ""))
+                        default=os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", ""))
     args = parser.parse_args()
 
-    if not args.api_key:
-        print("Error: No API key. Set GROQ_API_KEY or pass --api-key.", file=sys.stderr)
+    if not args.api_key and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        print("Error: Configure Gemini with GOOGLE_API_KEY or GOOGLE_CLOUD_PROJECT.", file=sys.stderr)
         sys.exit(1)
 
     schema = load_schema()

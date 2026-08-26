@@ -27,7 +27,7 @@ import jsonschema
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "research_output.schema.json"
 
-LLM_MODEL_ID = os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b")
+LLM_MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 15
@@ -179,14 +179,7 @@ def self_healing_extract(url: str) -> dict[str, Any]:
 # --- LLM analysis ---
 
 def analyze_sources(story: dict, extracted_articles: list[dict], api_key: str) -> dict | None:
-    from strands import Agent
-    from strands.models.litellm import LiteLLMModel
-
-    model = LiteLLMModel(
-        client_args={"api_key": api_key},
-        model_id=LLM_MODEL_ID,
-        params={"max_tokens": LLM_MAX_TOKENS},
-    )
+    from colonyv_agent.gemini import generate_json
 
     sources_text = ""
     for i, article in enumerate(extracted_articles):
@@ -227,18 +220,7 @@ Return ONLY valid JSON (no markdown, no explanation)."""
 
     for attempt in range(MAX_RETRIES):
         try:
-            agent = Agent(model=model, tools=[])
-            result = agent(prompt)
-            text = str(result).strip()
-
-            if "```" in text:
-                parts = text.split("```")
-                text = parts[1]
-                if text.startswith("json"):
-                    text = text[4:]
-                text = text.strip()
-
-            return json.loads(text)
+            return generate_json(prompt)
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             print(f"  [warn] Parse error attempt {attempt + 1}: {e}", file=sys.stderr)
@@ -342,11 +324,11 @@ def main():
     parser = argparse.ArgumentParser(description="Research Agent")
     parser.add_argument("--story-json", type=str, help="Path to MonitorOutput JSON file")
     parser.add_argument("--stdin", action="store_true", help="Read MonitorOutput from stdin")
-    parser.add_argument("--api-key", type=str, default=os.environ.get("COLONY_API_KEY") or os.environ.get("GROQ_API_KEY", ""))
+    parser.add_argument("--api-key", type=str, default=os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", ""))
     args = parser.parse_args()
 
-    if not args.api_key:
-        print("Error: No API key. Set GROQ_API_KEY or pass --api-key.", file=sys.stderr)
+    if not args.api_key and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        print("Error: Configure Gemini with GOOGLE_API_KEY or GOOGLE_CLOUD_PROJECT.", file=sys.stderr)
         sys.exit(1)
 
     schema = load_schema()

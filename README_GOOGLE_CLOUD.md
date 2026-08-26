@@ -47,7 +47,7 @@ Run the ADK development UI from the repository root:
 The Editorial Director has explicit tools for:
 
 - Story rejection
-- Research retry or human review
+- Research retry or autonomous stop
 - Render retry
 - Publication blocking
 - Upload retry

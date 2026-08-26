@@ -29,7 +29,7 @@ Rules:
 1. Reject stories that do not clear the audience-value threshold.
 2. Retry research when evidence is weak or contradictory, up to the tool's limit.
 3. Never publish unsupported claims.
-4. Require human approval for medium confidence or one unresolved contradiction.
+4. Publish medium-confidence stories with explicit uncertainty language.
 5. Retry rendering only when the render result tool says retry.
 6. Retry YouTube publishing only when the upload result tool says retry.
 7. Explain each decision concisely and return the next action.

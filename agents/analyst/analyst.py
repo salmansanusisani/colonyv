@@ -22,7 +22,7 @@ import jsonschema
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "analyst_output.schema.json"
 
-LLM_MODEL_ID = "groq/openai/gpt-oss-120b"
+LLM_MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
 
@@ -66,14 +66,7 @@ def collect_run_data(run_dir: Path) -> dict:
 
 def analyze_performance(run_data: dict, api_key: str, history: list | None = None) -> dict | None:
     """Use LLM to analyze pipeline performance and produce learned signals."""
-    from strands import Agent
-    from strands.models.litellm import LiteLLMModel
-
-    model = LiteLLMModel(
-        client_args={"api_key": api_key},
-        model_id=LLM_MODEL_ID,
-        params={"max_tokens": LLM_MAX_TOKENS},
-    )
+    from colonyv_agent.gemini import generate_json
 
     stories_summary = []
     for s in run_data["stories"]:
@@ -137,18 +130,7 @@ Return ONLY valid JSON (no markdown, no explanation)."""
 
     for attempt in range(MAX_RETRIES):
         try:
-            agent = Agent(model=model, tools=[])
-            result = agent(prompt)
-            text = str(result).strip()
-
-            if "```" in text:
-                parts = text.split("```")
-                text = parts[1]
-                if text.startswith("json"):
-                    text = text[4:]
-                text = text.strip()
-
-            return json.loads(text)
+            return generate_json(prompt)
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             print(f"  [warn] Parse error attempt {attempt + 1}: {e}", file=sys.stderr)

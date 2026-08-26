@@ -22,12 +22,12 @@ RSS Feeds → Monitor → Research → Scriptwriter → Video Renderer → YouTu
 
 ## Tech Stack
 
-- **LLM**: Groq via LiteLLM (`groq/openai/gpt-oss-120b`)
+- **LLM**: Google Gemini through Vertex AI (`gemini-3.5-flash`)
 - **TTS**: edge-tts (`en-US-AndrewNeural`)
 - **Video**: Remotion 4.0.514 + Chromium
 - **Dashboard**: FastAPI + Jinja2 + WebSocket (10-tab SPA)
 - **YouTube**: Google API OAuth2 with auto token refresh
-- **Framework**: AWS Strands Agents SDK
+- **Framework**: Google ADK
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ RSS Feeds → Monitor → Research → Scriptwriter → Video Renderer → YouTu
 - Node.js 18+
 - Chromium (`/usr/bin/chromium`)
 - FFmpeg
-- A [Groq API key](https://console.groq.com) (free tier works)
+- Gemini through Vertex AI with Google Cloud credentials, or a Gemini Developer API key for local testing
 - A Google Cloud project with YouTube Data API v3 enabled (for publishing)
 
 ## Installation
@@ -53,8 +53,11 @@ pip install -r requirements.txt
 # Node dependencies (Producer)
 cd producer && npm install && cd ..
 
-# Set your Groq API key
-export GROQ_API_KEY="gsk_..."
+# Configure Gemini through Vertex AI
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export GOOGLE_CLOUD_LOCATION="global"
+export GOOGLE_GENAI_USE_VERTEXAI="true"
+export COLONYV_GEMINI_MODEL="gemini-3.5-flash"
 ```
 
 ## Running
@@ -160,7 +163,11 @@ colonyv/
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GROQ_API_KEY` | Yes | Groq API key for LLM calls |
+| `GOOGLE_CLOUD_PROJECT` | Production | Google Cloud project used by Vertex AI |
+| `GOOGLE_CLOUD_LOCATION` | Production | Vertex AI location, normally `global` |
+| `GOOGLE_GENAI_USE_VERTEXAI` | Production | Set to `true` for Vertex AI |
+| `GOOGLE_API_KEY` | Local alternative | Gemini Developer API key |
+| `COLONYV_GEMINI_MODEL` | No | Gemini model identifier |
 | `REMOTION_CHROMIUM_EXECUTABLE_PATH` | No | Path to Chromium (default: `/usr/bin/chromium`) |
 
 ## Dashboard Configuration
@@ -184,11 +191,11 @@ Use the dashboard controls as follows:
 - **Stop Completely** terminates the process tree and marks the run stopped.
 - The live terminal receives every subprocess line through WebSocket and each run also writes `output/<run_id>/pipeline.log`.
 
-The model screen supports Groq, OpenAI-compatible endpoints, Anthropic Claude, and Google Gemini through LiteLLM. It provides a built-in model catalog, attempts live provider model discovery when a key is configured, and always allows a custom LiteLLM model ID.
+The production agent uses Google Gemini only. The dashboard model screen is now locked to Gemini and the pipeline does not accept other AI providers.
 
 ## Google ADK Production Path
 
-The All Things Agentic Hackathon production path uses Gemini, Google ADK, Cloud Run, and Firestore. The legacy Strands/Groq path remains available during migration.
+The All Things Agentic Hackathon production path uses Gemini, Google ADK, Cloud Run, and Firestore.
 
 ```bash
 pip install -r requirements.txt
@@ -198,7 +205,7 @@ python3 scripts/check_gemini.py
 adk web colonyv_agent
 ```
 
-The ADK root agent is `colonyv_agent.agent.root_agent`. It uses deterministic tools to reject low-value stories, retry weak research, require human approval, retry failed renders, block unsafe publishing, and retry failed uploads.
+The ADK root agent is `colonyv_agent.agent.root_agent`. It uses deterministic tools to reject low-value stories, retry weak research, retry failed renders, block unsafe publishing, and retry failed uploads. It operates autonomously without a human approval branch.
 
 See [README_GOOGLE_CLOUD.md](README_GOOGLE_CLOUD.md) for Vertex AI, Firestore, Docker, and Cloud Run setup.
 

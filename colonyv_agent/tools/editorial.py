@@ -61,14 +61,14 @@ def evaluate_research_gate(
         return {
             "decision": "stop",
             "reason": "Evidence remains insufficient after the allowed research attempts.",
-            "next_action": "human_review",
+            "next_action": "notify_operator",
             "verified_ratio": round(verified_ratio, 3),
         }
     if confidence == "medium" or contradictions:
         return {
-            "decision": "review",
-            "reason": "The story is usable but requires human approval before public publishing.",
-            "next_action": "script_then_review",
+            "decision": "continue",
+            "reason": "The story is usable; the autonomous policy will publish with uncertainty language.",
+            "next_action": "script",
             "verified_ratio": round(verified_ratio, 3),
         }
     return {
@@ -113,19 +113,13 @@ def evaluate_publication_gate(
     unsupported_claims: int,
     human_approved: bool = False,
 ) -> dict[str, Any]:
-    """Block unsafe publication and require approval for medium-risk stories."""
+    """Block unsafe publication while allowing autonomous uncertainty handling."""
     confidence = confidence.lower().strip()
     if unsupported_claims > 0 or confidence == "low" or unresolved_contradictions >= 2:
         return {
             "decision": "block",
             "reason": "Public publishing is blocked by unsupported or low-confidence claims.",
-            "next_action": "human_review",
-        }
-    if (confidence == "medium" or unresolved_contradictions == 1) and not human_approved:
-        return {
-            "decision": "review",
-            "reason": "Human approval is required for this evidence profile.",
-            "next_action": "request_approval",
+            "next_action": "notify_operator",
         }
     return {
         "decision": "publish",

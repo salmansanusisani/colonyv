@@ -40,7 +40,8 @@ def check_deps():
 
     print("\nPython packages:")
     python_pkgs = [
-        ("strands", "strands-agents"),
+        ("google.adk", "google-adk"),
+        ("google.genai", "google-genai"),
         ("feedparser", "feedparser"),
         ("jsonschema", "jsonschema"),
         ("requests", "requests"),
@@ -59,7 +60,7 @@ def check_deps():
     print("\nAPI Keys:")
     import os
     keys = [
-        ("GROQ_API_KEY", "Groq"),
+        ("GOOGLE_API_KEY", "Gemini Developer API"),
     ]
     for env, name in keys:
         val = os.environ.get(env, "")

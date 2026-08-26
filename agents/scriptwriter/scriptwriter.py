@@ -21,7 +21,7 @@ import jsonschema
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "script_output.schema.json"
 
-LLM_MODEL_ID = os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b")
+LLM_MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
 
@@ -96,14 +96,7 @@ def sanitize_script_output(script: dict) -> dict:
 
 
 def generate_script(research: dict, api_key: str) -> dict | None:
-    from strands import Agent
-    from strands.models.litellm import LiteLLMModel
-
-    model = LiteLLMModel(
-        client_args={"api_key": api_key},
-        model_id=LLM_MODEL_ID,
-        params={"max_tokens": LLM_MAX_TOKENS},
-    )
+    from colonyv_agent.gemini import generate_json
 
     summary = research.get("summary", "")
     claims = research.get("claims", [])
@@ -176,18 +169,7 @@ Return ONLY valid JSON (no markdown, no explanation)."""
 
     for attempt in range(MAX_RETRIES):
         try:
-            agent = Agent(model=model, tools=[])
-            result = agent(prompt)
-            text = str(result).strip()
-
-            if "```" in text:
-                parts = text.split("```")
-                text = parts[1]
-                if text.startswith("json"):
-                    text = text[4:]
-                text = text.strip()
-
-            raw_dict = json.loads(text)
+            raw_dict = generate_json(prompt)
             return sanitize_script_output(raw_dict)
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
@@ -225,11 +207,11 @@ def main():
     parser = argparse.ArgumentParser(description="ScriptWriter Agent")
     parser.add_argument("--research-json", type=str, help="Path to ResearchOutput JSON file")
     parser.add_argument("--stdin", action="store_true", help="Read ResearchOutput from stdin")
-    parser.add_argument("--api-key", type=str, default=os.environ.get("COLONY_API_KEY") or os.environ.get("GROQ_API_KEY", ""))
+    parser.add_argument("--api-key", type=str, default=os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", ""))
     args = parser.parse_args()
 
-    if not args.api_key:
-        print("Error: No API key. Set GROQ_API_KEY or pass --api-key.", file=sys.stderr)
+    if not args.api_key and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        print("Error: Configure Gemini with GOOGLE_API_KEY or GOOGLE_CLOUD_PROJECT.", file=sys.stderr)
         sys.exit(1)
 
     schema = load_schema()

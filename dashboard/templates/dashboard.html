@@ -946,17 +946,14 @@
                         <div class="card-title" style="margin-bottom:16px;">AI Model & API</div>
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Choose the model used by Monitor, Research, and Scriptwriter. API keys are stored locally and masked after saving.</p>
                         <div class="provider-grid">
-                            <button class="provider-card" data-provider="groq" data-model="groq/openai/gpt-oss-120b" onclick="selectModel('groq','groq/openai/gpt-oss-120b', this)"><span class="provider-mark groq-mark">G</span><span><strong>Groq</strong><small>Fast inference</small></span><span class="provider-check" data-check="groq"></span></button>
-                            <button class="provider-card" data-provider="openai" data-model="openai/gpt-4o-mini" onclick="selectModel('openai','openai/gpt-4o-mini', this)"><span class="provider-mark openai-mark">O</span><span><strong>OpenAI-compatible</strong><small>LiteLLM endpoint</small></span><span class="provider-check" data-check="openai"></span></button>
-                            <button class="provider-card" data-provider="anthropic" data-model="anthropic/claude-3-5-sonnet-latest" onclick="selectModel('anthropic','anthropic/claude-3-5-sonnet-latest', this)"><span class="provider-mark claude-mark">A</span><span><strong>Anthropic / Claude</strong><small>Claude via LiteLLM</small></span><span class="provider-check" data-check="anthropic"></span></button>
-                            <button class="provider-card" data-provider="gemini" data-model="gemini/gemini-2.0-flash" onclick="selectModel('gemini','gemini/gemini-2.0-flash', this)"><span class="provider-mark gemini-mark">G</span><span><strong>Google Gemini</strong><small>Gemini via LiteLLM</small></span><span class="provider-check" data-check="gemini"></span></button>
+                            <button class="provider-card active" data-provider="gemini" data-model="gemini/gemini-3.5-flash" onclick="selectModel('gemini','gemini/gemini-3.5-flash', this)"><span class="provider-mark gemini-mark">G</span><span><strong>Google Gemini</strong><small>Required hackathon model</small></span><span class="provider-check" data-check="gemini"></span></button>
                         </div>
                         <div class="settings-row" style="margin-bottom:14px; border-bottom:0; padding-bottom:0;">
                             <div class="settings-label"><span>Search providers</span><small>Filter the provider catalog</small></div>
                             <input id="providerSearch" class="apple-input" style="width:280px;" placeholder="Search providers" oninput="filterProviders(this.value)">
                         </div>
                         <div class="settings-group">
-                            <div class="settings-row"><div class="settings-label"><span>Active provider</span><small id="activeProviderStatus">Not selected</small></div><select id="modelProvider" class="apple-select" onchange="providerChanged(this.value)"><option value="groq">Groq via LiteLLM</option><option value="openai">OpenAI-compatible via LiteLLM</option><option value="anthropic">Anthropic / Claude</option><option value="gemini">Google Gemini</option></select></div>
+                            <div class="settings-row"><div class="settings-label"><span>Active provider</span><small id="activeProviderStatus">Google Gemini</small></div><select id="modelProvider" class="apple-select" disabled><option value="gemini">Google Gemini</option></select></div>
                             <div class="settings-row"><div class="settings-label"><span>Available models</span><small id="modelCatalogStatus">Choose a provider to load models</small></div><select id="modelCatalog" class="apple-select" style="min-width:320px;" onchange="modelCatalogChanged(this.value)"><option value="">Load provider models</option></select></div>
                             <div class="settings-row"><div class="settings-label"><span>Custom model ID</span><small>Paste any LiteLLM model name if it is not listed</small></div><input id="modelId" class="apple-input" style="width:320px;" placeholder="anthropic/claude-sonnet-4-20250514"></div>
                             <div class="settings-row"><div class="settings-label"><span>API key</span><small id="modelKeyStatus">Not configured</small></div><input id="modelApiKey" type="password" class="apple-input" style="width:320px;" placeholder="Leave blank to keep existing key"></div>
@@ -1592,10 +1589,10 @@ CONTROLS
         document.getElementById('videosPerRun').value = p.videos_per_run || 1;
         document.getElementById('skipPublish').checked = p.skip_publish !== false;
         document.getElementById('maxDuration').value = p.max_duration_seconds || 60;
-        document.getElementById('modelProvider').value = m.provider || 'groq';
+        document.getElementById('modelProvider').value = 'gemini';
         document.getElementById('modelId').value = m.model_id || '';
         const configuredProviders = m.configured_providers || {};
-        const activeProvider = m.provider || 'groq';
+        const activeProvider = 'gemini';
         document.getElementById('modelKeyStatus').textContent = configuredProviders[activeProvider] ? 'Key configured for this provider' : 'API key required for this provider';
         document.getElementById('topicPrompt').value = c.topic_prompt || '';
         document.getElementById('brandVoice').value = c.brand_voice || 'engaging_news';
@@ -1609,7 +1606,7 @@ CONTROLS
 
     async function saveSettings() {
         const apiKey = document.getElementById('modelApiKey').value.trim();
-        const model = { provider: document.getElementById('modelProvider').value, model_id: document.getElementById('modelId').value.trim() };
+        const model = { provider: 'gemini', model_id: document.getElementById('modelId').value.trim() };
         if (apiKey) model.api_key = apiKey;
         const body = { pipeline: { videos_per_run: parseInt(document.getElementById('videosPerRun').value), skip_publish: document.getElementById('skipPublish').checked, max_duration_seconds: parseInt(document.getElementById('maxDuration').value) }, model, content: { topic_prompt: document.getElementById('topicPrompt').value.trim(), brand_voice: document.getElementById('brandVoice').value } };
         const resp = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
