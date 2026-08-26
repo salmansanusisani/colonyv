@@ -27,6 +27,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+try:
+    from colonyv_agent.cloud_state import get_cloud_state
+except ImportError:
+    get_cloud_state = lambda: None
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Load environment variables from .env if present
 try:
@@ -137,6 +142,23 @@ def load_settings() -> dict:
 
 settings = load_settings()
 APP_STARTED_AT = time.time()
+CLOUD_STATE = None
+
+
+def persist_pipeline_state() -> None:
+    if not CLOUD_STATE or not pipeline_state.get("run_id"):
+        return
+    try:
+        CLOUD_STATE.save_run(
+            pipeline_state["run_id"],
+            {
+                key: value
+                for key, value in pipeline_state.items()
+                if key != "current_process"
+            },
+        )
+    except Exception as exc:
+        print(f"[cloud-state] Firestore persistence failed: {exc}", flush=True)
 
 
 def save_settings() -> None:
@@ -180,6 +202,7 @@ def log(msg: str):
     if len(pipeline_state["logs"]) > 500:
         pipeline_state["logs"] = pipeline_state["logs"][-500:]
     print(entry, flush=True)
+    persist_pipeline_state()
     run_id = pipeline_state.get("run_id")
     if run_id:
         try:
@@ -328,6 +351,7 @@ async def api_pipeline_start(request: Request):
         "stories_done": 0,
         "start_time": time.time(),
     })
+    persist_pipeline_state()
 
     asyncio.create_task(run_pipeline(stories, skip_publish))
 
@@ -1473,8 +1497,14 @@ def start_pipeline_task(stories: int, skip_publish: bool):
 
 @app.on_event("startup")
 async def start_scheduler():
-    global app_loop
+    global app_loop, CLOUD_STATE
     app_loop = asyncio.get_running_loop()
+    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        try:
+            CLOUD_STATE = get_cloud_state()
+            print("[cloud-state] Firestore run persistence enabled", flush=True)
+        except Exception as exc:
+            print(f"[cloud-state] Firestore unavailable: {exc}", flush=True)
     import threading
     def _loop():
         while True:
