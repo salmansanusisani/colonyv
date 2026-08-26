@@ -49,8 +49,8 @@ DEFAULT_SETTINGS = {
         "max_duration_seconds": 60,
     },
     "model": {
-        "provider": "groq",
-        "model_id": os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b"),
+        "provider": "gemini",
+        "model_id": os.environ.get("COLONY_MODEL_ID", "gemini/gemini-3.5-flash"),
         "api_keys": {},
     },
     "content": {
@@ -72,6 +72,15 @@ DEFAULT_SETTINGS = {
 }
 
 MODEL_PROVIDER_CATALOG = {
+    "gemini": {
+        "label": "Google Gemini",
+        "key_env": "GEMINI_API_KEY",
+        "models": [
+            "gemini/gemini-3.5-flash",
+            "gemini/gemini-2.5-flash",
+            "gemini/gemini-2.5-pro",
+        ],
+    },
     "groq": {
         "label": "Groq",
         "key_env": "GROQ_API_KEY",
@@ -98,15 +107,6 @@ MODEL_PROVIDER_CATALOG = {
             "anthropic/claude-3-7-sonnet-latest",
             "anthropic/claude-3-5-sonnet-latest",
             "anthropic/claude-3-5-haiku-latest",
-        ],
-    },
-    "gemini": {
-        "label": "Google Gemini",
-        "key_env": "GEMINI_API_KEY",
-        "models": [
-            "gemini/gemini-2.5-pro",
-            "gemini/gemini-2.5-flash",
-            "gemini/gemini-2.0-flash",
         ],
     },
 }
@@ -214,6 +214,11 @@ async def broadcast_log(msg: str):
 async def dashboard(request: Request):
     template = templates.get_template("dashboard.html")
     return HTMLResponse(content=template.render(request=request))
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok", "service": "colonyv"}
 
 
 @app.get("/icon_logo.png", include_in_schema=False)

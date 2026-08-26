@@ -5,8 +5,8 @@
     "max_duration_seconds": 60
   },
   "model": {
-    "provider": "groq",
-    "model_id": "groq/openai/gpt-oss-120b",
+    "provider": "gemini",
+    "model_id": "gemini/gemini-3.5-flash",
     "api_keys": {}
   },
   "content": {

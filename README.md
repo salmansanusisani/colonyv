@@ -186,6 +186,22 @@ Use the dashboard controls as follows:
 
 The model screen supports Groq, OpenAI-compatible endpoints, Anthropic Claude, and Google Gemini through LiteLLM. It provides a built-in model catalog, attempts live provider model discovery when a key is configured, and always allows a custom LiteLLM model ID.
 
+## Google ADK Production Path
+
+The All Things Agentic Hackathon production path uses Gemini, Google ADK, Cloud Run, and Firestore. The legacy Strands/Groq path remains available during migration.
+
+```bash
+pip install -r requirements.txt
+export GOOGLE_API_KEY="..."
+export COLONYV_GEMINI_MODEL="gemini-3.5-flash"
+python3 scripts/check_gemini.py
+adk web colonyv_agent
+```
+
+The ADK root agent is `colonyv_agent.agent.root_agent`. It uses deterministic tools to reject low-value stories, retry weak research, require human approval, retry failed renders, block unsafe publishing, and retry failed uploads.
+
+See [README_GOOGLE_CLOUD.md](README_GOOGLE_CLOUD.md) for Vertex AI, Firestore, Docker, and Cloud Run setup.
+
 ## Key Files
 
 | File | Purpose |
