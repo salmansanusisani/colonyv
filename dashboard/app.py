@@ -509,8 +509,7 @@ YOUTUBE_SCOPES = [
 ]
 
 
-@app.get("/api/youtube")
-async def api_youtube():
+def _youtube_data():
     token_path = AGENTS_DIR / "publisher" / "youtube_token.json"
     if not token_path.exists():
         return {
@@ -609,6 +608,18 @@ async def api_youtube():
                 "message": "YouTube token missing read permissions. Please go to Setup & Settings and click 'Connect with Google' to grant channel reading permissions.",
             }
         return {"connected": False, "setup": {"status": "error", "label": "YouTube connection needs attention"}, "error": str(e)}
+
+
+@app.get("/api/youtube")
+async def api_youtube():
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_youtube_data), timeout=25)
+    except asyncio.TimeoutError:
+        return {
+            "connected": False,
+            "setup": {"status": "timeout", "label": "YouTube took too long to respond"},
+            "error": "YouTube request timed out. The rest of ColonyV is still available.",
+        }
 
 
 @app.post("/api/youtube/upload-secret")

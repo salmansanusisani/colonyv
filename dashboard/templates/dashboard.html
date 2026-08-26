@@ -596,6 +596,27 @@
             animation: shimmer 1.4s ease-in-out infinite;
         }
 
+        .shimmer-surface {
+            position: relative;
+            overflow: hidden;
+            background: #f0f0f2;
+            border-radius: 14px;
+        }
+
+        .shimmer-surface::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            transform: translateX(-100%);
+            background: linear-gradient(105deg, transparent 25%, rgba(255,255,255,.86) 50%, transparent 75%);
+            animation: surfaceShimmer 1.8s ease-in-out infinite;
+        }
+
+        @keyframes surfaceShimmer { to { transform: translateX(100%); } }
+
+        .account-status { display:flex; flex-direction:column; gap:5px; margin-top:12px; padding:14px 16px; border:1px solid rgba(52,199,89,.2); background:rgba(52,199,89,.06); border-radius:12px; color:var(--text-primary); font-size:13px; }
+        .account-status span { color:var(--text-secondary); font-size:12px; }
+
         @keyframes shimmer {
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
@@ -807,22 +828,22 @@
             <div class="grid-row grid-4" style="margin-bottom: 24px;">
                 <div class="apple-card">
                     <div class="card-title">Total Runs</div>
-                    <div class="card-big-value loading" id="statRuns">—</div>
+                    <div class="card-big-value loading" id="statRuns"><span class="shimmer-surface" style="display:block; width:64px; height:32px;"></span></div>
                     <div class="card-subtext">Pipeline Executions</div>
                 </div>
                 <div class="apple-card">
                     <div class="card-title">Stories Processed</div>
-                    <div class="card-big-value loading" id="statStories">—</div>
+                    <div class="card-big-value loading" id="statStories"><span class="shimmer-surface" style="display:block; width:64px; height:32px;"></span></div>
                     <div class="card-subtext">Researched & Scripted</div>
                 </div>
                 <div class="apple-card">
                     <div class="card-title">Videos Rendered</div>
-                    <div class="card-big-value loading" id="statRendered">—</div>
+                    <div class="card-big-value loading" id="statRendered"><span class="shimmer-surface" style="display:block; width:64px; height:32px;"></span></div>
                     <div class="card-subtext">1080x1920 MP4 Shorts</div>
                 </div>
                 <div class="apple-card">
                     <div class="card-title">Video Storage</div>
-                    <div class="card-big-value loading" id="statStorageValue">—</div>
+                    <div class="card-big-value loading" id="statStorageValue"><span class="shimmer-surface" style="display:block; width:82px; height:32px;"></span></div>
                     <div class="card-subtext" id="statStorage">Video files on disk</div>
                 </div>
             </div>
@@ -834,9 +855,14 @@
                     <span class="badge badge-blue" id="ytConnectionBadge">Loading...</span>
                 </div>
                 <div id="ytOverviewContent">
-                    <div class="loading-row">
-                        <div class="loading-spinner"></div>
-                        <span>Fetching YouTube channel data...</span>
+                    <div style="display:grid; gap:12px;">
+                        <div class="shimmer-surface" style="height:18px; width:210px;"></div>
+                        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px;">
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1390,31 +1416,37 @@ CONTROLS
         badge.className = 'badge badge-blue';
         badge.textContent = 'Loading...';
         content.innerHTML = `
-            <div class="loading-row">
-                <div class="loading-spinner"></div>
-                <span>Fetching YouTube channel data...</span>
-            </div>
-            <div style="margin-top:16px; display:grid; grid-template-columns:repeat(4,1fr); gap:12px;">
-                <div class="skeleton-line" style="height:40px;"></div>
-                <div class="skeleton-line" style="height:40px;"></div>
-                <div class="skeleton-line" style="height:40px;"></div>
-                <div class="skeleton-line" style="height:40px;"></div>
-            </div>
+                    <div style="display:grid; gap:12px;">
+                        <div class="shimmer-surface" style="height:18px; width:210px;"></div>
+                        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px;">
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                            <div class="shimmer-surface" style="height:62px;"></div>
+                        </div>
+                        <div class="shimmer-surface" style="height:42px; width:100%;"></div>
+                    </div>
         `;
     }
 
     async function loadYouTube() {
         showYouTubeLoading();
-        const resp = await fetch('/api/youtube');
-        const data = await resp.json();
+        let data;
+        try {
+            const resp = await fetch('/api/youtube');
+            data = await resp.json();
+        } catch (error) {
+            data = {connected:false, error:'Unable to reach YouTube right now.'};
+        }
         const badge = document.getElementById('ytConnectionBadge');
         const content = document.getElementById('ytOverviewContent');
 
         if (!data.connected) {
             badge.className = 'badge badge-gray';
-            badge.textContent = 'Not Connected';
+            badge.textContent = data.setup?.status === 'timeout' ? 'Unavailable' : 'Not Connected';
             const msg = esc(data.message || data.error || 'Connect YouTube OAuth credentials in Setup & Settings to view live subscriber metrics & video view performance.');
             content.innerHTML = `<div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">${msg}</div>`;
+            document.getElementById('ytAccountDetails').style.display = 'none';
             document.getElementById('ytAuthBtn').disabled = false;
             document.getElementById('ytAuthBtn').style.display = 'inline-flex';
             document.getElementById('ytDisconnectBtn').style.display = 'none';
