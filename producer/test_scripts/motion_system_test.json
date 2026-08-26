@@ -1,0 +1,29 @@
+{
+  "hook": "Nvidia just changed the economics of AI compute.",
+  "body": "Jensen Huang says advanced chips are becoming revenue generating assets. | Nvidia's new financing strategy could unlock 500 billion dollars. | Capital flows into compute, then compute produces AI services.",
+  "cta": "Follow Colony V for the signal behind the headline.",
+  "estimated_duration": 15,
+  "format": "motion system test",
+  "claims_used": [
+    "Nvidia is positioning compute as an asset class.",
+    "The financing discussed could reach 500 billion dollars."
+  ],
+  "claims_not_used": [],
+  "suggested_visual_beats": [
+    {
+      "name": "beat_01_jensen",
+      "narration_text": "Jensen Huang says advanced chips are becoming revenue generating assets.",
+      "beat_type": "kinetic_text"
+    },
+    {
+      "name": "beat_02_funding",
+      "narration_text": "Nvidia's new financing strategy could unlock 500 billion dollars.",
+      "beat_type": "stat_reveal"
+    },
+    {
+      "name": "beat_03_flow",
+      "narration_text": "Capital flows into compute, then compute produces AI services.",
+      "beat_type": "diagram"
+    }
+  ]
+}

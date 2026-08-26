@@ -14,14 +14,16 @@ Provides:
 import asyncio
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -35,8 +37,112 @@ except ImportError:
 AGENTS_DIR = PROJECT_ROOT / "agents"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 DASHBOARD_DIR = Path(__file__).resolve().parent
+CONFIG_DIR = PROJECT_ROOT / "config"
+SETTINGS_PATH = CONFIG_DIR / "settings.json"
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+DEFAULT_SETTINGS = {
+    "pipeline": {
+        "videos_per_run": 1,
+        "skip_publish": True,
+        "max_duration_seconds": 60,
+    },
+    "model": {
+        "provider": "groq",
+        "model_id": os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b"),
+        "api_keys": {},
+    },
+    "content": {
+        "categories": ["ai", "tech", "crypto"],
+        "topic_prompt": "",
+        "brand_voice": "engaging_news",
+    },
+    "scheduler": {
+        "enabled": False,
+        "interval_hours": 6,
+        "videos_per_run": 1,
+    },
+    "notifications": {
+        "slack_webhook": "",
+        "email_to": "",
+        "on_complete": True,
+        "on_error": True,
+    },
+}
+
+MODEL_PROVIDER_CATALOG = {
+    "groq": {
+        "label": "Groq",
+        "key_env": "GROQ_API_KEY",
+        "models": [
+            "groq/openai/gpt-oss-120b",
+            "groq/llama-3.3-70b-versatile",
+            "groq/llama-3.1-8b-instant",
+        ],
+    },
+    "openai": {
+        "label": "OpenAI-compatible",
+        "key_env": "OPENAI_API_KEY",
+        "models": [
+            "openai/gpt-4o-mini",
+            "openai/gpt-4.1-mini",
+            "openai/gpt-4o",
+        ],
+    },
+    "anthropic": {
+        "label": "Anthropic / Claude",
+        "key_env": "ANTHROPIC_API_KEY",
+        "models": [
+            "anthropic/claude-sonnet-4-20250514",
+            "anthropic/claude-3-7-sonnet-latest",
+            "anthropic/claude-3-5-sonnet-latest",
+            "anthropic/claude-3-5-haiku-latest",
+        ],
+    },
+    "gemini": {
+        "label": "Google Gemini",
+        "key_env": "GEMINI_API_KEY",
+        "models": [
+            "gemini/gemini-2.5-pro",
+            "gemini/gemini-2.5-flash",
+            "gemini/gemini-2.0-flash",
+        ],
+    },
+}
+
+
+def load_settings() -> dict:
+    settings = json.loads(json.dumps(DEFAULT_SETTINGS))
+    if SETTINGS_PATH.exists():
+        try:
+            with open(SETTINGS_PATH) as f:
+                saved = json.load(f)
+            for section, values in saved.items():
+                if isinstance(values, dict) and section in settings:
+                    settings[section].update(values)
+        except (OSError, json.JSONDecodeError):
+            pass
+    # Public publishing is the only dashboard mode; discard the old privacy setting.
+    settings["pipeline"].pop("youtube_privacy", None)
+    # Migrate the original single-key shape without exposing or losing it.
+    legacy_key = settings["model"].pop("api_key", "")
+    if legacy_key:
+        settings["model"].setdefault("api_keys", {})[settings["model"].get("provider", "groq")] = legacy_key
+    settings["model"].setdefault("api_keys", {})
+    if os.environ.get("GROQ_API_KEY") and not settings["model"]["api_keys"].get("groq"):
+        settings["model"]["api_keys"]["groq"] = os.environ["GROQ_API_KEY"]
+    return settings
+
+
+settings = load_settings()
+APP_STARTED_AT = time.time()
+
+
+def save_settings() -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SETTINGS_PATH, "w") as f:
+        json.dump(settings, f, indent=2)
 
 app = FastAPI(title="COLONY — Autonomous Media Orchestrator")
 app.mount("/static", StaticFiles(directory=str(DASHBOARD_DIR / "static")), name="static")
@@ -45,6 +151,7 @@ templates = Jinja2Templates(directory=str(DASHBOARD_DIR / "templates"))
 # --- Global state ---
 pipeline_state = {
     "running": False,
+    "paused": False,
     "run_id": None,
     "current_step": None,
     "progress": 0,
@@ -56,6 +163,7 @@ pipeline_state = {
 }
 
 log_subscribers: list[WebSocket] = []
+app_loop: asyncio.AbstractEventLoop | None = None
 
 
 def get_python_exec() -> str:
@@ -72,11 +180,21 @@ def log(msg: str):
     if len(pipeline_state["logs"]) > 500:
         pipeline_state["logs"] = pipeline_state["logs"][-500:]
     print(entry, flush=True)
+    run_id = pipeline_state.get("run_id")
+    if run_id:
+        try:
+            run_dir = OUTPUT_DIR / run_id
+            run_dir.mkdir(parents=True, exist_ok=True)
+            with open(run_dir / "pipeline.log", "a") as f:
+                f.write(entry + "\n")
+        except OSError:
+            pass
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(broadcast_log(entry))
     except RuntimeError:
-        pass
+        if app_loop and app_loop.is_running():
+            asyncio.run_coroutine_threadsafe(broadcast_log(entry), app_loop)
 
 
 async def broadcast_log(msg: str):
@@ -98,10 +216,16 @@ async def dashboard(request: Request):
     return HTMLResponse(content=template.render(request=request))
 
 
+@app.get("/icon_logo.png", include_in_schema=False)
+async def icon_logo():
+    return FileResponse(PROJECT_ROOT / "icon_logo.png", media_type="image/png")
+
+
 @app.get("/api/status")
 async def api_status():
     return {
         "running": pipeline_state["running"],
+        "paused": pipeline_state["paused"],
         "run_id": pipeline_state["run_id"],
         "current_step": pipeline_state["current_step"],
         "progress": pipeline_state["progress"],
@@ -112,6 +236,8 @@ async def api_status():
             if pipeline_state["start_time"]
             else 0
         ),
+        "uptime": time.time() - APP_STARTED_AT,
+        "next_run": scheduler_config.get("next_run") if "scheduler_config" in globals() else None,
     }
 
 
@@ -183,11 +309,12 @@ async def api_pipeline_start(request: Request):
         return JSONResponse({"error": "Pipeline already running"}, 409)
 
     body = await request.json()
-    stories = body.get("stories", 1)
-    skip_publish = body.get("skip_publish", False)
+    stories = int(settings["pipeline"].get("videos_per_run", 1))
+    skip_publish = bool(settings["pipeline"].get("skip_publish", True))
 
     pipeline_state.update({
         "running": True,
+        "paused": False,
         "run_id": datetime.now().strftime("%Y%m%d_%H%M%S"),
         "current_step": "starting",
         "progress": 0,
@@ -202,18 +329,125 @@ async def api_pipeline_start(request: Request):
     return {"status": "started", "run_id": pipeline_state["run_id"]}
 
 
+@app.post("/api/pipeline/pause")
+async def api_pipeline_pause():
+    if not pipeline_state["running"]:
+        return JSONResponse({"error": "Pipeline is not running"}, 409)
+    pipeline_state["paused"] = True
+    proc = pipeline_state.get("current_process")
+    if proc is not None and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGSTOP)
+        except ProcessLookupError:
+            pass
+    log("Pipeline paused. Current work is frozen; click Resume to continue.")
+    return {"status": "paused"}
+
+
+@app.post("/api/pipeline/resume")
+async def api_pipeline_resume():
+    if not pipeline_state["running"]:
+        return JSONResponse({"error": "Pipeline is not running"}, 409)
+    pipeline_state["paused"] = False
+    proc = pipeline_state.get("current_process")
+    if proc is not None and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGCONT)
+        except ProcessLookupError:
+            pass
+    log("Pipeline resumed.")
+    return {"status": "resumed"}
+
+
 @app.post("/api/pipeline/stop")
 async def api_pipeline_stop():
+    pipeline_state["paused"] = False
     pipeline_state["running"] = False
     pipeline_state["current_step"] = "stopped"
     proc = pipeline_state.get("current_process")
     if proc is not None and proc.poll() is None:
-        proc.terminate()
+        try:
+            os.killpg(proc.pid, signal.SIGCONT)
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            proc.terminate()
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                proc.kill()
     return {"status": "stopped"}
+
+
+@app.get("/api/settings")
+async def api_settings_get():
+    visible = json.loads(json.dumps(settings))
+    keys = visible["model"].pop("api_keys", {})
+    visible["model"]["configured_providers"] = {
+        provider: bool(key) for provider, key in keys.items()
+    }
+    return visible
+
+
+@app.post("/api/settings")
+async def api_settings_set(request: Request):
+    body = await request.json()
+    for section in ("pipeline", "content"):
+        values = body.get(section)
+        if isinstance(values, dict):
+            settings[section].update(values)
+    model_values = body.get("model")
+    if isinstance(model_values, dict):
+        provider = model_values.get("provider", settings["model"].get("provider", "groq"))
+        settings["model"]["provider"] = provider
+        if model_values.get("model_id"):
+            settings["model"]["model_id"] = model_values["model_id"]
+        if model_values.get("api_key"):
+            settings["model"].setdefault("api_keys", {})[provider] = model_values["api_key"]
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    save_settings()
+    return await api_settings_get()
+
+
+@app.get("/api/models")
+async def api_models(provider: str = ""):
+    """Return a provider's model catalog, optionally enriched from its API."""
+    provider = provider.strip().lower()
+    if provider not in MODEL_PROVIDER_CATALOG:
+        return JSONResponse({"error": "Unknown provider"}, 400)
+
+    catalog = MODEL_PROVIDER_CATALOG[provider]
+    models = list(catalog["models"])
+    key = settings["model"].get("api_keys", {}).get(provider, "")
+    try:
+        import requests
+        if provider in {"groq", "openai"} and key:
+            base_url = "https://api.groq.com/openai/v1/models" if provider == "groq" else "https://api.openai.com/v1/models"
+            response = requests.get(base_url, headers={"Authorization": f"Bearer {key}"}, timeout=10)
+            response.raise_for_status()
+            discovered = [str(item.get("id")) for item in response.json().get("data", []) if item.get("id")]
+            if discovered:
+                prefix = "groq/" if provider == "groq" else "openai/"
+                models = [item if item.startswith(prefix) else f"{prefix}{item}" for item in discovered]
+        elif provider == "gemini" and key:
+            response = requests.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": key}, timeout=10,
+            )
+            response.raise_for_status()
+            discovered = [
+                str(item.get("name", "")).removeprefix("models/")
+                for item in response.json().get("models", [])
+                if item.get("name") and "generateContent" in item.get("supportedGenerationMethods", [])
+            ]
+            if discovered:
+                models = [item if item.startswith("gemini/") else f"gemini/{item}" for item in discovered]
+    except Exception as exc:
+        return {"provider": provider, "label": catalog["label"], "models": models, "source": "built-in", "warning": str(exc)}
+
+    return {"provider": provider, "label": catalog["label"], "models": sorted(set(models)), "source": "api" if key else "built-in"}
 
 
 @app.get("/api/analytics")
@@ -345,6 +579,7 @@ async def api_youtube():
         channel_name = channel.get("snippet", {}).get("title") or "Authenticated Channel"
         return {
             "connected": True,
+            "setup": {"status": "connected", "label": "YouTube account connected"},
             "channel": {
                 "name": channel_name,
                 "subscribers": int(stats.get("subscriberCount", 0)),
@@ -359,9 +594,10 @@ async def api_youtube():
         if "insufficient" in err_str.lower() or "403" in err_str:
             return {
                 "connected": False,
+                "setup": {"status": "needs_reauthorization", "label": "Reconnect YouTube account"},
                 "message": "YouTube token missing read permissions. Please go to Setup & Settings and click 'Connect with Google' to grant channel reading permissions.",
             }
-        return {"connected": False, "error": str(e)}
+        return {"connected": False, "setup": {"status": "error", "label": "YouTube connection needs attention"}, "error": str(e)}
 
 
 @app.post("/api/youtube/upload-secret")
@@ -520,7 +756,7 @@ def run_cancellable_subprocess(
     step_label: str = "",
 ) -> subprocess.CompletedProcess:
     label = step_label or " ".join(str(x).split("/")[-1] for x in cmd[:2])
-    print(f"  [{label}] starting: {' '.join(str(x) for x in cmd)}", flush=True)
+    log(f"[{label}] starting: {' '.join(str(x) for x in cmd)}")
 
     proc = subprocess.Popen(
         cmd,
@@ -529,9 +765,12 @@ def run_cancellable_subprocess(
         text=True,
         cwd=cwd,
         env=env,
+        start_new_session=True,
     )
     pipeline_state["current_process"] = proc
     start = time.time()
+    paused_at = None
+    paused_seconds = 0.0
     stdout_lines = []
     try:
         import selectors
@@ -541,14 +780,29 @@ def run_cancellable_subprocess(
 
         while True:
             if not pipeline_state["running"]:
-                proc.kill()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    proc.kill()
                 stdout_text = "\n".join(stdout_lines)
                 return subprocess.CompletedProcess(cmd, -15, stdout_text, "")
 
-            elapsed = time.time() - start
+            if pipeline_state["paused"]:
+                if paused_at is None:
+                    paused_at = time.time()
+                time.sleep(0.25)
+                continue
+            if paused_at is not None:
+                paused_seconds += time.time() - paused_at
+                paused_at = None
+
+            elapsed = time.time() - start - paused_seconds
             if elapsed > timeout:
-                print(f"  [{label}] TIMEOUT after {timeout}s, killing", flush=True)
-                proc.kill()
+                log(f"[{label}] TIMEOUT after {timeout}s of active work; terminating")
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    proc.kill()
                 proc.wait()
                 stdout_text = "\n".join(stdout_lines)
                 return subprocess.CompletedProcess(cmd, -9, stdout_text, "")
@@ -559,7 +813,7 @@ def run_cancellable_subprocess(
                 if line:
                     stripped = line.strip()
                     if stripped:
-                        print(f"  [{label}] {stripped}", flush=True)
+                        log(f"[{label}] {stripped}")
                         stdout_lines.append(stripped)
                 else:
                     # EOF — process closed its stdout
@@ -572,12 +826,12 @@ def run_cancellable_subprocess(
                     for line in proc.stdout:
                         stripped = line.strip()
                         if stripped:
-                            print(f"  [{label}] {stripped}", flush=True)
+                            log(f"[{label}] {stripped}")
                             stdout_lines.append(stripped)
                 sel.close()
                 stdout_text = "\n".join(stdout_lines)
                 elapsed = round(time.time() - start, 1)
-                print(f"  [{label}] exited with code {ret} ({elapsed}s)", flush=True)
+                log(f"[{label}] exited with code {ret} ({elapsed}s)")
                 return subprocess.CompletedProcess(cmd, ret, stdout_text, "")
 
     finally:
@@ -598,12 +852,26 @@ async def run_pipeline(stories: int, skip_publish: bool):
         log("Step 1/5: Scanning RSS feeds...")
 
         py_exec = get_python_exec()
+        provider = settings["model"].get("provider", "groq")
+        provider_key = settings["model"].get("api_keys", {}).get(provider, "")
+        model_env = {
+            **os.environ,
+            "GROQ_API_KEY": provider_key if provider == "groq" else GROQ_API_KEY,
+            "COLONY_MODEL_ID": settings["model"].get("model_id", "groq/openai/gpt-oss-120b"),
+            "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
+            "COLONY_API_KEY": provider_key,
+            "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
+        }
+        if provider == "anthropic":
+            model_env["ANTHROPIC_API_KEY"] = provider_key
+        elif provider == "gemini":
+            model_env["GEMINI_API_KEY"] = provider_key
         result = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: run_cancellable_subprocess(
                 [py_exec, str(AGENTS_DIR / "monitor" / "monitor.py"), "--top", str(stories * 3)],
                 cwd=str(AGENTS_DIR), timeout=300,
-                env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
+                env=model_env,
                 step_label="monitor",
             ),
         )
@@ -649,7 +917,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     [py_exec, str(AGENTS_DIR / "research" / "research.py"),
                      "--story-json", str(output_dir / f"{story_id}_monitor.json")],
                     cwd=str(AGENTS_DIR), timeout=300,
-                    env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
+                    env=model_env,
                     step_label=f"research-{story_id[:8]}",
                 ),
             )
@@ -676,7 +944,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                             [py_exec, str(AGENTS_DIR / "research" / "research.py"),
                              "--story-json", str(output_dir / f"{story_id}_monitor.json")],
                             cwd=str(AGENTS_DIR), timeout=300,
-                            env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
+                            env=model_env,
                             step_label=f"research-{story_id[:8]}-retry",
                         ),
                     )
@@ -709,7 +977,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     [py_exec, str(AGENTS_DIR / "scriptwriter" / "scriptwriter.py"),
                      "--research-json", str(output_dir / f"{story_id}_research.json")],
                     cwd=str(AGENTS_DIR), timeout=300,
-                    env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
+                    env=model_env,
                     step_label=f"script-{story_id[:8]}",
                 ),
             )
@@ -736,7 +1004,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                             [py_exec, str(AGENTS_DIR / "scriptwriter" / "scriptwriter.py"),
                              "--research-json", str(output_dir / f"{story_id}_research.json")],
                             cwd=str(AGENTS_DIR), timeout=300,
-                            env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
+                            env=model_env,
                             step_label=f"script-{story_id[:8]}-retry",
                         ),
                     )
@@ -767,7 +1035,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                      str(output_dir / f"{story_id}_script.json"),
                      "--output", str(output_dir / f"{story_id}.mp4")],
                     cwd=str(PROJECT_ROOT), timeout=1800,
-                    env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
+                    env=model_env,
                     step_label=f"render-{story_id[:8]}",
                 ),
             )
@@ -797,6 +1065,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     "--title", script.get("hook", "AI News")[:100],
                     "--description", script.get("body", "")[:5000],
                     "--tags", "ai,tech,news",
+                    "--privacy", "public",
                 ]
 
 
@@ -860,7 +1129,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                         [py_exec, str(AGENTS_DIR / "analyst" / "analyst.py"),
                          "--run-dir", str(output_dir)],
                         cwd=str(AGENTS_DIR), timeout=120,
-                        env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
+                        env=model_env,
                         step_label="analyst",
                     ),
                 )
@@ -957,9 +1226,9 @@ def parse_json_from_output(output: str, expect: str = "object"):
 # --- Scheduler ---
 
 scheduler_config = {
-    "enabled": False,
-    "interval_hours": 6,
-    "stories": 2,
+    "enabled": settings["scheduler"].get("enabled", False),
+    "interval_hours": settings["scheduler"].get("interval_hours", 6),
+    "stories": settings["scheduler"].get("videos_per_run", settings["pipeline"].get("videos_per_run", 1)),
 
     "last_run": None,
     "next_run": None,
@@ -977,22 +1246,28 @@ async def api_scheduler_set(request: Request):
     scheduler_config.update({
         "enabled": body.get("enabled", False),
         "interval_hours": body.get("interval_hours", 6),
-        "stories": body.get("stories", 2),
+        "stories": body.get("stories", settings["pipeline"].get("videos_per_run", 1)),
     })
     if scheduler_config["enabled"]:
         scheduler_config["next_run"] = (
             datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
         ).isoformat()
+    settings["scheduler"].update({
+        "enabled": scheduler_config["enabled"],
+        "interval_hours": scheduler_config["interval_hours"],
+        "videos_per_run": scheduler_config["stories"],
+    })
+    save_settings()
     return scheduler_config
 
 
 # --- Notifications ---
 
 notification_config = {
-    "slack_webhook": os.environ.get("SLACK_WEBHOOK_URL", ""),
-    "email_to": os.environ.get("NOTIFY_EMAIL", ""),
-    "on_complete": True,
-    "on_error": True,
+    "slack_webhook": settings["notifications"].get("slack_webhook") or os.environ.get("SLACK_WEBHOOK_URL", ""),
+    "email_to": settings["notifications"].get("email_to") or os.environ.get("NOTIFY_EMAIL", ""),
+    "on_complete": settings["notifications"].get("on_complete", True),
+    "on_error": settings["notifications"].get("on_error", True),
 }
 
 
@@ -1010,6 +1285,12 @@ async def api_notifications_get():
 async def api_notifications_set(request: Request):
     body = await request.json()
     notification_config.update(body)
+    settings["notifications"].update({
+        key: notification_config[key]
+        for key in ("slack_webhook", "email_to", "on_complete", "on_error")
+        if key in notification_config
+    })
+    save_settings()
     return {"status": "ok"}
 
 
@@ -1157,23 +1438,43 @@ def scheduler_tick():
             scheduler_config["next_run"] = (
                 datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
             ).isoformat()
-            # Trigger pipeline
-            asyncio.get_event_loop().create_task(
-                run_pipeline(
-                    stories=scheduler_config["stories"],
-                    skip_publish=False,
+            # Trigger the same initialized run path used by the dashboard button.
+            if app_loop:
+                app_loop.call_soon_threadsafe(
+                    start_pipeline_task,
+                    scheduler_config["stories"],
+                    bool(settings["pipeline"].get("skip_publish", True)),
                 )
-            )
     except Exception:
         pass
 
 
+def start_pipeline_task(stories: int, skip_publish: bool):
+    if pipeline_state["running"]:
+        return
+    pipeline_state.update({
+        "running": True,
+        "paused": False,
+        "run_id": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "current_step": "starting",
+        "progress": 0,
+        "logs": [],
+        "story_count": stories,
+        "stories_done": 0,
+        "start_time": time.time(),
+    })
+    asyncio.create_task(run_pipeline(stories, skip_publish))
+
+
 @app.on_event("startup")
 async def start_scheduler():
+    global app_loop
+    app_loop = asyncio.get_running_loop()
     import threading
     def _loop():
         while True:
-            scheduler_tick()
+            if app_loop:
+                app_loop.call_soon_threadsafe(scheduler_tick)
             time.sleep(60)
     t = threading.Thread(target=_loop, daemon=True)
     t.start()

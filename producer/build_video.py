@@ -5,9 +5,9 @@ build_video.py — Generic video renderer for Content Ops Agent.
 Input: A ScriptOutput JSON file (conforming to contracts/script_output.schema.json).
 Output: A rendered mp4 video (portrait 1080x1920).
 
-Architecture (same as bitcoin-remotion):
-  - 3 audio files: hook, body (continuous), cta
-  - Body beats split by word-count proportion, remainder absorbs rounding
+Architecture:
+  - Separate audio for hook, every body beat, and CTA
+  - Every scene duration comes from its measured narration file
   - No trail silence padding — audio IS the timing
   - fraction-based crossfades between beats
 
@@ -25,6 +25,7 @@ import struct
 import subprocess
 import sys
 import wave
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +169,34 @@ def generate_placeholder_image(name: str, output_path: Path, width: int = 1080, 
         pass
 
 
+def download_editorial_asset(url: str, output_path: Path, asset_type: str = "article_image") -> bool:
+    """Download a story asset only when the script explicitly selected it."""
+    try:
+        import requests
+        from PIL import Image
+        response = requests.get(url, timeout=20, headers={"User-Agent": "ColonyV/1.0"})
+        response.raise_for_status()
+        if len(response.content) < 10_000 or len(response.content) > 15_000_000:
+            return False
+        with Image.open(BytesIO(response.content)) as image:
+            min_width, min_height = (200, 100) if asset_type == "logo" else (500, 300)
+            if image.width < min_width or image.height < min_height:
+                print(f"  [warn] Editorial asset too small: {image.width}x{image.height} ({url})")
+                return False
+            if asset_type == "logo":
+                rgba = image.convert("RGBA")
+                background = Image.new("RGBA", rgba.size, (255, 255, 255, 0))
+                background.alpha_composite(rgba)
+                background.save(output_path, "PNG", optimize=True)
+            else:
+                image.convert("RGB").save(output_path, "PNG", optimize=True)
+        return True
+    except Exception as exc:
+        print(f"  [warn] Editorial asset unavailable: {url} ({exc})")
+        output_path.unlink(missing_ok=True)
+        return False
+
+
 # ---------- Main build ----------
 
 async def build_video(script_path: str, output_path: str | None = None) -> None:
@@ -186,54 +215,58 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
         d.mkdir(parents=True, exist_ok=True)
 
     beats_data = script_data["suggested_visual_beats"]
-    body_text = " ".join(b["narration_text"] for b in beats_data)
-
-    # --- 1. Generate 3 audio files (no padding) ---
-    print(f"[1/4] Generating 3 audio files (voice={VOICE})...")
+    for i, beat in enumerate(beats_data):
+        if beat.get("visual_style"):
+            continue
+        if beat.get("asset_available") or beat.get("image_url"):
+            beat["visual_style"] = "image_led"
+        elif beat.get("beat_type") == "stat_reveal":
+            beat["visual_style"] = "stat_led"
+        elif beat.get("beat_type") == "diagram":
+            beat["visual_style"] = "diagram"
+        elif i == len(beats_data) - 1:
+            beat["visual_style"] = "quiet"
+        else:
+            beat["visual_style"] = "editorial"
+    # --- 1. Generate one measured narration file per scene ---
+    print(f"[1/4] Generating {len(beats_data) + 2} audio files (voice={VOICE})...")
 
     hook_path = audio_dir / "01_hook.mp3"
-    body_path = audio_dir / "02_body.mp3"
     cta_path = audio_dir / "03_cta.mp3"
 
     await generate_tts(script_data["hook"], hook_path)
-    await generate_tts(body_text, body_path)
+    beat_paths = []
+    for i, beat in enumerate(beats_data):
+        beat_path = audio_dir / f"beat_{i + 1:02d}.mp3"
+        await generate_tts(beat.get("narration_text", ""), beat_path)
+        beat_paths.append(beat_path)
     await generate_tts(script_data["cta"], cta_path)
 
     hook_s = measure_duration_seconds(hook_path)
-    body_s = measure_duration_seconds(body_path)
+    beat_seconds = [measure_duration_seconds(path) for path in beat_paths]
     cta_s = measure_duration_seconds(cta_path)
 
     wps = 2.6
     if hook_s is None:
         hook_s = len(script_data["hook"].split()) / wps
-    if body_s is None:
-        body_s = len(body_text.split()) / wps
+    beat_seconds = [
+        duration if duration is not None else len(beats_data[i].get("narration_text", "").split()) / wps
+        for i, duration in enumerate(beat_seconds)
+    ]
     if cta_s is None:
         cta_s = len(script_data["cta"].split()) / wps
 
     hook_frames = round(hook_s * FPS)
-    body_frames = round(body_s * FPS)
     outro_frames = round(cta_s * FPS)
 
     print(f"  hook:  {hook_s:.2f}s -> {hook_frames}f")
-    print(f"  body:  {body_s:.2f}s -> {body_frames}f")
     print(f"  outro: {cta_s:.2f}s -> {outro_frames}f")
 
-    # --- 2. Split body frames by word count (remainder absorbs rounding) ---
-    word_counts = {b["name"]: len(b.get("narration_text", "").split()) for b in beats_data}
-    total_words = sum(word_counts.values())
-    if total_words == 0:
-        total_words = 1
-    keys = [b["name"] for b in beats_data]
-    beat_frames = {}
-    allocated = 0
-    for i, k in enumerate(keys):
-        if i < len(keys) - 1:
-            f = round(word_counts[k] / total_words * body_frames)
-            beat_frames[k] = f
-            allocated += f
-        else:
-            beat_frames[k] = body_frames - allocated
+    # --- 2. Convert each real beat duration into frames ---
+    beat_frames = {
+        beat["name"]: max(1, round(beat_seconds[i] * FPS))
+        for i, beat in enumerate(beats_data)
+    }
 
     print("  beat split:")
     for k, f in beat_frames.items():
@@ -245,11 +278,21 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
 
     # --- 4. Placeholder images ---
     print("[3/4] Generating placeholder images...")
-    image_names = ["hook", "outro"] + [b["name"] for b in beats_data]
-    for img_name in image_names:
-        img_file = images_dir / f"{img_name}.png"
-        if not img_file.exists():
-            generate_placeholder_image(img_name, img_file)
+    asset_manifest = []
+    for beat in beats_data:
+        image_url = beat.get("image_url", "")
+        image_path = images_dir / f"{beat['name']}.png"
+        available = bool(image_url and download_editorial_asset(image_url, image_path, beat.get("asset_type", "article_image")))
+        beat["asset_available"] = available
+        if available:
+            asset_manifest.append({
+                "beat": beat["name"],
+                "url": image_url,
+                "local_path": str(image_path),
+                "subject": beat.get("asset_subject", ""),
+                "credit": beat.get("asset_credit", "Source article"),
+            })
+    (render_dir / "asset_manifest.json").write_text(json.dumps(asset_manifest, indent=2))
 
     # --- 5. Write timing.json ---
     timing = {
@@ -275,8 +318,9 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
         target.mkdir(parents=True, exist_ok=True)
 
     shutil.copy2(str(hook_path), str(PUBLIC_DIR / "audio" / "01_hook.mp3"))
-    shutil.copy2(str(body_path), str(PUBLIC_DIR / "audio" / "02_body.mp3"))
     shutil.copy2(str(cta_path), str(PUBLIC_DIR / "audio" / "03_cta.mp3"))
+    for beat_path in beat_paths:
+        shutil.copy2(str(beat_path), str(PUBLIC_DIR / "audio" / beat_path.name))
 
     for sfx_name in ["whoosh", "pop", "ding"]:
         src = sfx_dir / f"{sfx_name}.wav"
@@ -288,7 +332,7 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
             shutil.copy2(str(img_path), str(PUBLIC_DIR / "images" / img_path.name))
 
     # Save script with timing for reference
-    script_with_timing = {**script_data, "_timing": timing}
+    script_with_timing = {"script": script_data, "_timing": timing}
     (render_dir / "script_with_timing.json").write_text(json.dumps(script_with_timing, indent=2))
 
     # --- 7. Remotion render ---
@@ -306,6 +350,7 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
         "ContentVideo",
         output,
         "--concurrency=4",
+        "--props", str(render_dir / "script_with_timing.json"),
     ]
     if Path(chromium_path).exists():
         remotion_cmd.extend(["--browser-executable", chromium_path])

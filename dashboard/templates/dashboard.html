@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>COLONY V — Autonomous Media Hub</title>
+    <link rel="icon" type="image/png" href="/icon_logo.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Michroma&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://unpkg.com/lucide@0.468.0"></script>
     <style>
         :root {
             --bg-body: #f5f5f7;
@@ -67,13 +69,7 @@
             width: 36px;
             height: 36px;
             border-radius: 10px;
-            background: #1d1d1f;
-            color: #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 800;
-            font-size: 18px;
+            object-fit: cover;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
@@ -83,24 +79,74 @@
         }
 
         .brand-title {
-            font-size: 18px;
-            font-weight: 800;
+            font-family: 'Michroma', 'Plus Jakarta Sans', sans-serif;
+            font-size: 17px;
+            font-weight: 700;
             color: var(--text-primary);
-            letter-spacing: -0.02em;
+            letter-spacing: 0.12em;
+            line-height: 1.2;
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
         .roman-tag {
-            background: rgba(0, 113, 227, 0.1);
             color: var(--apple-blue);
-            font-size: 12px;
-            font-weight: 700;
-            padding: 2px 8px;
-            border-radius: 12px;
-            letter-spacing: 1px;
+            font: inherit;
+            font-weight: 800;
+            letter-spacing: inherit;
         }
+
+        .header-settings-button {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            height: 40px;
+            padding: 0 16px;
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            background: #fff;
+            color: var(--text-primary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .header-settings-button:hover { color: var(--apple-blue); border-color: var(--border-hover); }
+        .header-settings-button svg { width: 17px; height: 17px; }
+
+        .workspace-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 32px;
+            margin-bottom: 18px;
+        }
+
+        .workspace-page-label {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+
+        .settings-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 0;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .settings-back:hover { color: var(--apple-blue); }
+        .settings-back svg { width: 17px; height: 17px; }
 
         .brand-subtitle {
             font-size: 12px;
@@ -197,6 +243,39 @@
         .grid-2 { grid-template-columns: repeat(2, 1fr); }
         .grid-1-2 { grid-template-columns: 1fr 2fr; }
         .grid-2-1 { grid-template-columns: 2fr 1fr; }
+
+        .settings-shell { display:grid; grid-template-columns:220px minmax(0,1fr); gap:24px; align-items:start; }
+        .settings-nav { position:sticky; top:92px; display:flex; flex-direction:column; gap:4px; }
+        .settings-nav button { width:100%; justify-content:flex-start; border-radius:10px; color:var(--text-secondary); background:transparent; box-shadow:none; }
+        .settings-nav button:hover { background:#f5f5f7; color:var(--text-primary); transform:none; }
+        .settings-nav button.active { background:#eef5ff; color:var(--apple-blue); box-shadow:none; }
+        .settings-panel { display:none; animation:viewFadeIn .2s ease; }
+        .settings-panel.active { display:block; }
+        .icon-button { width:34px; height:34px; padding:0; border-radius:10px; }
+        .icon-button svg, .btn-apple svg, .segmented-control svg { width:16px; height:16px; stroke-width:2; }
+        .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+        .provider-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; margin-bottom:22px; }
+        .provider-card { display:flex; align-items:center; gap:12px; width:100%; padding:14px; text-align:left; border:1px solid var(--border-light); background:#fff; border-radius:14px; cursor:pointer; color:var(--text-primary); transition:all .2s ease; }
+        .provider-card:hover { border-color:var(--apple-blue); box-shadow:var(--shadow-sm); transform:translateY(-1px); }
+        .provider-card.active { border-color:var(--apple-blue); background:#f5f9ff; box-shadow:0 0 0 2px rgba(0,113,227,.12); }
+        .provider-card strong, .provider-card small { display:block; }
+        .provider-card small { color:var(--text-secondary); font-size:11px; margin-top:3px; }
+        .provider-mark { display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:9px; color:#fff; font-size:16px; font-weight:800; }
+        .groq-mark { background:#111827; } .openai-mark { background:#10a37f; } .claude-mark { background:#d97757; } .gemini-mark { background:linear-gradient(135deg,#4285f4,#a142f4); }
+        .provider-check { margin-left:auto; width:17px; height:17px; border:1px solid var(--border-light); border-radius:50%; }
+        .provider-card.active .provider-check { border:5px solid var(--apple-blue); }
+        .provider-lock { margin-left:auto; color:var(--text-tertiary); }
+        .provider-lock svg { width:15px; }
+
+        .chart-card { overflow:hidden; }
+        .chart-copy { margin-bottom:18px; }
+        .chart-copy p { margin-top:6px; max-width:520px; color:var(--text-secondary); font-size:12px; line-height:1.55; }
+        .chart-summary { display:flex; align-items:baseline; gap:8px; margin-top:14px; }
+        .chart-summary strong { font-size:24px; letter-spacing:-0.03em; }
+        .chart-summary span { color:var(--text-tertiary); font-size:12px; }
+        .chart-stage { height:250px; position:relative; opacity:0; transform:translateY(12px) scale(.985); }
+        .chart-stage.reveal { animation:chartReveal .7s cubic-bezier(.16,1,.3,1) forwards; }
+        @keyframes chartReveal { to { opacity:1; transform:translateY(0) scale(1); } }
 
         /* Apple Glass Cards */
         .apple-card {
@@ -632,8 +711,12 @@
 
         @media (max-width: 900px) {
             .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+            .settings-shell { grid-template-columns: 1fr; }
+            .settings-nav { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .settings-nav .card-title { grid-column: 1 / -1; }
             .app-header { flex-direction: column; gap: 12px; padding: 14px 20px; }
             .workspace { padding: 20px; }
+            .header-settings-button { margin-left: auto; }
         }
     </style>
 </head>
@@ -648,7 +731,7 @@
     <!-- Apple Navigation Bar -->
     <header class="app-header">
         <div class="header-brand">
-            <div class="brand-icon">C</div>
+            <img class="brand-icon" src="/icon_logo.png" alt="ColonyV logo">
             <div class="brand-title-group">
                 <div class="brand-title">
                     COLONY <span class="roman-tag">V</span>
@@ -657,27 +740,21 @@
             </div>
         </div>
 
-        <!-- Segmented Navigation Picker -->
-        <div class="segmented-control">
-            <button class="active" onclick="switchView('dashboard', this)">
-                📊 Dashboard
-            </button>
-            <button onclick="switchView('settings', this)">
-                ⚙️ Setup & Settings
-            </button>
-            <button onclick="switchView('guide', this)">
-                📖 Manual
-            </button>
-        </div>
+        <button class="header-settings-button" aria-label="Open Settings" title="Settings" onclick="switchView('settings', this)">
+            <i data-lucide="settings"></i> <span>Settings</span>
+        </button>
 
-        <div class="status-badge">
-            <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">System Idle</span>
-        </div>
     </header>
 
     <!-- Workspace -->
     <main class="workspace">
+        <div class="workspace-status">
+            <div class="workspace-page-label" id="workspacePageLabel">Dashboard</div>
+            <div class="status-badge">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">System Idle</span>
+            </div>
+        </div>
 
         <!-- ================= VIEW 1: MAIN DASHBOARD ================= -->
         <div id="view-dashboard" class="view-content active">
@@ -685,25 +762,25 @@
             <!-- Hero Execution Control Bar -->
             <div class="control-hero-card">
                 <div class="hero-left">
-                    <div class="input-group">
-                        <label>Stories:</label>
-                        <select id="storyCount" class="apple-select">
-                            <option value="1">1 Story</option>
-                            <option value="2" selected>2 Stories</option>
-                            <option value="3">3 Stories</option>
-                            <option value="5">5 Stories</option>
-                        </select>
+                    <div>
+                        <div style="font-size:13px; font-weight:700;">Ready to run</div>
+                    <div id="runConfigSummary" style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Configure your workspace in Settings.</div>
+                    <div id="scheduleSummary" style="font-size:12px; color:var(--text-tertiary); margin-top:6px;">Schedule not configured</div>
                     </div>
-
-
                 </div>
 
                 <div style="display:flex; gap:10px;">
                     <button id="startBtn" class="btn-apple btn-apple-primary" onclick="startPipeline()">
-                        ⚡ Run Pipeline
+                        <i data-lucide="play"></i> Run Pipeline
+                    </button>
+                    <button id="pauseBtn" class="btn-apple btn-apple-secondary" onclick="pausePipeline()" disabled>
+                        <i data-lucide="pause"></i> Pause
+                    </button>
+                    <button id="resumeBtn" class="btn-apple btn-apple-secondary" onclick="resumePipeline()" disabled>
+                        <i data-lucide="play"></i> Resume
                     </button>
                     <button id="stopBtn" class="btn-apple btn-apple-danger" onclick="stopPipeline()" disabled>
-                        Stop
+                        <i data-lucide="square"></i> Stop Completely
                     </button>
                 </div>
             </div>
@@ -744,9 +821,9 @@
                     <div class="card-subtext">1080x1920 MP4 Shorts</div>
                 </div>
                 <div class="apple-card">
-                    <div class="card-title">Est. Cost / Storage</div>
-                    <div class="card-big-value loading" id="statCost">—</div>
-                    <div class="card-subtext" id="statStorage">Loading...</div>
+                    <div class="card-title">Video Storage</div>
+                    <div class="card-big-value loading" id="statStorageValue">—</div>
+                    <div class="card-subtext" id="statStorage">Video files on disk</div>
                 </div>
             </div>
 
@@ -808,13 +885,21 @@
 
             <!-- Analytics Charts Grid -->
             <div class="grid-row grid-2">
-                <div class="apple-card">
-                    <div class="card-title" style="margin-bottom:16px;">Stories Processed per Run</div>
-                    <div style="height:240px; position:relative;"><canvas id="storiesChart"></canvas></div>
+                <div class="apple-card chart-card">
+                    <div class="chart-copy">
+                        <div class="card-title">Pipeline Throughput</div>
+                        <p>How many source stories ColonyV processed in each recent run. Use this to see whether scheduled and manual executions are producing consistent volume.</p>
+                        <div class="chart-summary"><strong id="throughputSummary">0</strong><span>stories processed</span></div>
+                    </div>
+                    <div class="chart-stage" id="storiesChartStage"><canvas id="storiesChart"></canvas></div>
                 </div>
-                <div class="apple-card">
-                    <div class="card-title" style="margin-bottom:16px;">Video Render File Sizes (MB)</div>
-                    <div style="height:240px; position:relative;"><canvas id="sizesChart"></canvas></div>
+                <div class="apple-card chart-card">
+                    <div class="chart-copy">
+                        <div class="card-title">Video Storage Trend</div>
+                        <p>Rendered MP4 storage created by each run. Larger values usually mean more videos or longer narration, and help track local disk growth.</p>
+                        <div class="chart-summary"><strong id="storageSummary">0 MB</strong><span>total rendered storage</span></div>
+                    </div>
+                    <div class="chart-stage" id="sizesChartStage"><canvas id="sizesChart"></canvas></div>
                 </div>
             </div>
 
@@ -823,24 +908,64 @@
         <!-- ================= VIEW 2: SETUP & SETTINGS ================= -->
         <div id="view-settings" class="view-content">
 
-            <div class="grid-row grid-1-2">
-                <!-- Side Settings Sub-Nav -->
-                <div class="apple-card" style="height:fit-content;">
-                    <div class="card-title" style="margin-bottom:14px;">Settings & Setup</div>
-                    <div style="display:flex; flex-direction:column; gap:6px;">
-                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('niche-setup')">🎯 Niche & Content Focus</button>
-                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('rss-setup')">🛰️ RSS Feed Sources</button>
-                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('sched-setup')">⏱️ Auto Scheduler</button>
-                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('yt-setup')">📺 YouTube OAuth</button>
-                        <button class="btn-apple btn-apple-secondary" style="justify-content:flex-start;" onclick="scrollToSection('alert-setup')">🔔 Alerts & Webhooks</button>
-                    </div>
-                </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;">
+                <button class="settings-back" onclick="switchView('dashboard')" aria-label="Back to Dashboard">
+                    <i data-lucide="arrow-left"></i> Back to Dashboard
+                </button>
+                <div style="font-size:15px; font-weight:700; color:var(--text-primary);">Settings</div>
+            </div>
 
-                <!-- Main Settings Form Area -->
-                <div style="display:flex; flex-direction:column; gap:24px;">
+            <div class="settings-shell">
+                <nav class="settings-nav" aria-label="Settings sections">
+                    <div class="card-title" style="padding:8px 12px 10px;">Settings</div>
+                    <button class="btn-apple" data-settings-tab="model" onclick="showSettingsTab('model', this)"><i data-lucide="cpu"></i> AI Model</button>
+                    <button class="btn-apple" data-settings-tab="content" onclick="showSettingsTab('content', this)"><i data-lucide="scan-search"></i> Content Focus</button>
+                    <button class="btn-apple" data-settings-tab="feeds" onclick="showSettingsTab('feeds', this)"><i data-lucide="rss"></i> RSS Sources</button>
+                    <button class="btn-apple" data-settings-tab="youtube" onclick="showSettingsTab('youtube', this)"><i data-lucide="youtube"></i> YouTube</button>
+                    <button class="btn-apple" data-settings-tab="pipeline" onclick="showSettingsTab('pipeline', this)"><i data-lucide="sliders-horizontal"></i> Pipeline</button>
+                    <button class="btn-apple" data-settings-tab="alerts" onclick="showSettingsTab('alerts', this)"><i data-lucide="bell"></i> Notifications</button>
+                    <button class="btn-apple" data-settings-tab="scheduler" onclick="showSettingsTab('scheduler', this)"><i data-lucide="calendar-clock"></i> Scheduler</button>
+                    <button class="btn-apple" data-settings-tab="manual" onclick="showSettingsTab('manual', this)"><i data-lucide="book-open"></i> Manual</button>
+                </nav>
+
+                <div>
 
                     <!-- 1. Target Niche & Channel Settings -->
-                    <div class="apple-card" id="niche-setup">
+                    <div class="apple-card settings-panel" id="pipeline-setup" data-settings-panel="pipeline">
+                        <div class="card-title" style="margin-bottom:16px;">Pipeline Defaults</div>
+                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">These settings control every manual and scheduled run. Dashboard Run uses them automatically.</p>
+                        <div class="settings-group">
+                            <div class="settings-row"><div class="settings-label"><span>Videos per run</span><small>Number of stories to process each time</small></div><input id="videosPerRun" type="number" min="1" max="20" value="1" class="apple-input" style="width:100px;"></div>
+                            <div class="settings-row"><div class="settings-label"><span>Publish automatically</span><small>When off, videos render without uploading</small></div><input id="skipPublish" type="checkbox" checked style="width:20px; height:20px; accent-color:var(--apple-blue)"></div>
+                            <div class="settings-row"><div class="settings-label"><span>Maximum narration duration</span><small>Hard target for generated videos</small></div><input id="maxDuration" type="number" min="10" max="60" value="60" class="apple-input" style="width:100px;"><span style="font-size:12px;">seconds</span></div>
+                        </div>
+                        <button class="btn-apple btn-apple-primary btn-sm" onclick="saveSettings()">Save Pipeline Settings</button>
+                    </div>
+
+                    <div class="apple-card settings-panel active" id="model-setup" data-settings-panel="model">
+                        <div class="card-title" style="margin-bottom:16px;">AI Model & API</div>
+                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Choose the model used by Monitor, Research, and Scriptwriter. API keys are stored locally and masked after saving.</p>
+                        <div class="provider-grid">
+                            <button class="provider-card" data-provider="groq" data-model="groq/openai/gpt-oss-120b" onclick="selectModel('groq','groq/openai/gpt-oss-120b', this)"><span class="provider-mark groq-mark">G</span><span><strong>Groq</strong><small>Fast inference</small></span><span class="provider-check" data-check="groq"></span></button>
+                            <button class="provider-card" data-provider="openai" data-model="openai/gpt-4o-mini" onclick="selectModel('openai','openai/gpt-4o-mini', this)"><span class="provider-mark openai-mark">O</span><span><strong>OpenAI-compatible</strong><small>LiteLLM endpoint</small></span><span class="provider-check" data-check="openai"></span></button>
+                            <button class="provider-card" data-provider="anthropic" data-model="anthropic/claude-3-5-sonnet-latest" onclick="selectModel('anthropic','anthropic/claude-3-5-sonnet-latest', this)"><span class="provider-mark claude-mark">A</span><span><strong>Anthropic / Claude</strong><small>Claude via LiteLLM</small></span><span class="provider-check" data-check="anthropic"></span></button>
+                            <button class="provider-card" data-provider="gemini" data-model="gemini/gemini-2.0-flash" onclick="selectModel('gemini','gemini/gemini-2.0-flash', this)"><span class="provider-mark gemini-mark">G</span><span><strong>Google Gemini</strong><small>Gemini via LiteLLM</small></span><span class="provider-check" data-check="gemini"></span></button>
+                        </div>
+                        <div class="settings-row" style="margin-bottom:14px; border-bottom:0; padding-bottom:0;">
+                            <div class="settings-label"><span>Search providers</span><small>Filter the provider catalog</small></div>
+                            <input id="providerSearch" class="apple-input" style="width:280px;" placeholder="Search providers" oninput="filterProviders(this.value)">
+                        </div>
+                        <div class="settings-group">
+                            <div class="settings-row"><div class="settings-label"><span>Active provider</span><small id="activeProviderStatus">Not selected</small></div><select id="modelProvider" class="apple-select" onchange="providerChanged(this.value)"><option value="groq">Groq via LiteLLM</option><option value="openai">OpenAI-compatible via LiteLLM</option><option value="anthropic">Anthropic / Claude</option><option value="gemini">Google Gemini</option></select></div>
+                            <div class="settings-row"><div class="settings-label"><span>Available models</span><small id="modelCatalogStatus">Choose a provider to load models</small></div><select id="modelCatalog" class="apple-select" style="min-width:320px;" onchange="modelCatalogChanged(this.value)"><option value="">Load provider models</option></select></div>
+                            <div class="settings-row"><div class="settings-label"><span>Custom model ID</span><small>Paste any LiteLLM model name if it is not listed</small></div><input id="modelId" class="apple-input" style="width:320px;" placeholder="anthropic/claude-sonnet-4-20250514"></div>
+                            <div class="settings-row"><div class="settings-label"><span>API key</span><small id="modelKeyStatus">Not configured</small></div><input id="modelApiKey" type="password" class="apple-input" style="width:320px;" placeholder="Leave blank to keep existing key"></div>
+                        </div>
+                        <button class="btn-apple btn-apple-primary btn-sm" onclick="saveSettings()">Save Pipeline & Model Settings</button>
+                    </div>
+
+                    <!-- 1. Target Niche & Channel Settings -->
+                    <div class="apple-card settings-panel" id="niche-setup" data-settings-panel="content">
                         <div class="card-title" style="margin-bottom:16px;">Channel Niche & Target Topic Focus</div>
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Customize the target news domains and topic categories your pipeline focuses on.</p>
 
@@ -850,11 +975,7 @@
                                     <span>Target Categories</span>
                                     <small>Enable topics for feed parsing & scoring</small>
                                 </div>
-                                <div style="display:flex; gap:12px;">
-                                    <label style="font-size:13px"><input type="checkbox" id="catAI" checked style="accent-color:var(--apple-blue)"> Artificial Intelligence</label>
-                                    <label style="font-size:13px"><input type="checkbox" id="catTech" checked style="accent-color:var(--apple-blue)"> Tech & Gadgets</label>
-                                    <label style="font-size:13px"><input type="checkbox" id="catCrypto" checked style="accent-color:var(--apple-blue)"> Crypto & Web3</label>
-                                </div>
+                                <input id="topicPrompt" class="apple-input" style="width:min(520px, 100%);" placeholder="e.g. AI agents, robotics, chips, creator tools, crypto markets">
                             </div>
                             <div class="settings-row">
                                 <div class="settings-label">
@@ -868,10 +989,11 @@
                                 </select>
                             </div>
                         </div>
+                        <button class="btn-apple btn-apple-primary btn-sm" onclick="saveSettings()">Save Content Settings</button>
                     </div>
 
                     <!-- 2. RSS Feeds Setup -->
-                    <div class="apple-card" id="rss-setup">
+                    <div class="apple-card settings-panel" id="rss-setup" data-settings-panel="feeds">
                         <div class="card-title" style="margin-bottom:16px;">RSS Feed Sources</div>
                         <div id="feedsList" style="margin-bottom:16px;"></div>
                         <div style="display:flex; gap:10px;">
@@ -881,7 +1003,7 @@
                     </div>
 
                     <!-- 3. Scheduler Setup -->
-                    <div class="apple-card" id="sched-setup">
+                    <div class="apple-card settings-panel" id="sched-setup" data-settings-panel="scheduler">
                         <div class="card-title" style="margin-bottom:16px;">Automated Pipeline Scheduler</div>
                         <div class="settings-group">
                             <div class="settings-row">
@@ -915,7 +1037,7 @@
                     </div>
 
                     <!-- 4. YouTube Setup -->
-                    <div class="apple-card" id="yt-setup">
+                    <div class="apple-card settings-panel" id="yt-setup" data-settings-panel="youtube">
                         <div class="card-title" style="margin-bottom:16px;">YouTube OAuth Credentials</div>
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px">Upload client_secret.json to enable YouTube Shorts publishing.</p>
                         <textarea id="ytSecretInput" placeholder="Paste client_secret.json contents here..." class="apple-input" style="width:100%; height:100px; font-family:monospace; margin-bottom:12px;"></textarea>
@@ -924,11 +1046,12 @@
                             <button class="btn-apple btn-apple-secondary btn-sm" id="ytAuthBtn" onclick="startYouTubeAuth()" disabled>Connect with Google</button>
                             <button class="btn-apple btn-apple-danger btn-sm" id="ytDisconnectBtn" onclick="disconnectYouTube()" style="display:none">Disconnect</button>
                         </div>
-                        <div id="ytStatus" style="font-size:12px; color:var(--text-secondary); margin-top:10px;"></div>
+                        <div id="ytStatus" style="font-size:12px; color:var(--text-secondary); margin-top:10px;">Checking connection...</div>
+                        <div id="ytAccountDetails" class="account-status" style="display:none;"></div>
                     </div>
 
                     <!-- 5. Alerts & Notifications -->
-                    <div class="apple-card" id="alert-setup">
+                    <div class="apple-card settings-panel" id="alert-setup" data-settings-panel="alerts">
                         <div class="card-title" style="margin-bottom:16px;">Alerts & Webhooks</div>
                         <div class="settings-group">
                             <div class="settings-row">
@@ -946,33 +1069,27 @@
                         </div>
                     </div>
 
+                    <div class="apple-card settings-panel" id="manual-setup" data-settings-panel="manual">
+                        <div class="card-title" style="margin-bottom:12px;">ColonyV Manual</div>
+                        <p style="font-size:14px; color:var(--text-secondary); line-height:1.6; margin-bottom:18px;">Configure the workspace first, then run and monitor the live pipeline from Dashboard.</p>
+                        <pre style="white-space:pre-wrap; background:#111827; color:#d1fae5; padding:20px; border-radius:12px; line-height:1.55; font-size:12px; overflow:auto;">SETTINGS
+  AI Model -> Content Focus -> RSS Sources -> YouTube
+  Pipeline -> Notifications -> Scheduler -> Manual
+
+RUNTIME
+  RSS Monitor -> Research -> Scriptwriter -> Producer -> YouTube
+                                      \-> Analyst and feedback
+
+CONTROLS
+  Run starts a new run from saved settings.
+  Pause freezes the active process and timeout clock.
+  Resume continues the same process.
+  Stop Completely terminates the process tree.</pre>
+                    </div>
+
                 </div>
             </div>
 
-        </div>
-
-        <!-- ================= VIEW 3: MANUAL & GUIDE ================= -->
-        <div id="view-guide" class="view-content">
-            <div class="apple-card">
-                <div class="card-title" style="margin-bottom:12px;">COLONY V System Architecture</div>
-                <p style="font-size:14px; color:var(--text-secondary); line-height:1.6; margin-bottom:20px;">
-                    COLONY V is an autonomous video production agent that converts breaking RSS news into high-impact vertical short videos (1080x1920) and publishes them directly to YouTube.
-                </p>
-                <div class="grid-row grid-3">
-                    <div style="background:#f5f5f7; padding:18px; border-radius:14px;">
-                        <strong style="color:var(--text-primary); font-size:14px;">1. Monitor & Research</strong>
-                        <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Scans RSS feeds, scores news priority, and extracts verified claims with self-healing scrapers.</p>
-                    </div>
-                    <div style="background:#f5f5f7; padding:18px; border-radius:14px;">
-                        <strong style="color:var(--text-primary); font-size:14px;">2. Script & Produce</strong>
-                        <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Generates hook/body/CTA narration scripts, TTS voiceovers, SFX, and Remotion renders.</p>
-                    </div>
-                    <div style="background:#f5f5f7; padding:18px; border-radius:14px;">
-                        <strong style="color:var(--text-primary); font-size:14px;">3. Publish & Learn</strong>
-                        <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Publishes to YouTube Data API and analyzes channel metrics to tune future runs.</p>
-                    </div>
-                </div>
-            </div>
         </div>
 
     </main>
@@ -984,12 +1101,14 @@
     let charts = {};
     let runStartTime = null;
     let timerInterval = null;
+    let settingsData = null;
 
     // View Switching
     function switchView(viewName, btn) {
         document.querySelectorAll('.view-content').forEach(v => v.classList.remove('active'));
         document.querySelectorAll('.segmented-control button').forEach(b => b.classList.remove('active'));
         document.getElementById('view-' + viewName).classList.add('active');
+        document.getElementById('workspacePageLabel').textContent = viewName === 'settings' ? 'Settings' : 'Dashboard';
         if (btn) btn.classList.add('active');
 
         if (viewName === 'dashboard') {
@@ -998,13 +1117,22 @@
             loadYouTube();
             loadCosts();
         } else if (viewName === 'settings') {
-            loadFeeds();
-            loadScheduler();
+            loadSettings();
+            showSettingsTab('model', document.querySelector('[data-settings-tab="model"]'));
         }
     }
 
-    function scrollToSection(id) {
-        document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+    function showSettingsTab(tabName, btn) {
+        document.querySelectorAll('[data-settings-panel]').forEach(panel => {
+            panel.classList.toggle('active', panel.dataset.settingsPanel === tabName);
+        });
+        document.querySelectorAll('[data-settings-tab]').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.settingsTab === tabName);
+        });
+        if (tabName === 'feeds') loadFeeds();
+        if (tabName === 'scheduler') loadScheduler();
+        if (tabName === 'youtube') loadYouTube();
+        if (tabName === 'alerts') loadNotifications();
     }
 
     function toggleTerminalExpand() {
@@ -1055,14 +1183,15 @@
 
     // Pipeline Controls
     async function startPipeline() {
-        const stories = parseInt(document.getElementById('storyCount').value);
         const resp = await fetch('/api/pipeline/start', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ stories, skip_publish: false })
+            body: JSON.stringify({})
         });
         if (resp.ok) {
             document.getElementById('startBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = false;
+            document.getElementById('resumeBtn').disabled = true;
             document.getElementById('stopBtn').disabled = false;
             document.getElementById('progressSection').style.display = 'block';
             document.getElementById('liveLog').innerHTML = '';
@@ -1080,6 +1209,18 @@
         document.getElementById('stopBtn').disabled = true;
         await fetch('/api/pipeline/stop', { method: 'POST' });
         toast('Pipeline halting...', 'info');
+        pollStatus();
+    }
+
+    async function pausePipeline() {
+        await fetch('/api/pipeline/pause', {method:'POST'});
+        toast('Pipeline paused', 'info');
+        pollStatus();
+    }
+
+    async function resumePipeline() {
+        await fetch('/api/pipeline/resume', {method:'POST'});
+        toast('Pipeline resumed', 'info');
         pollStatus();
     }
 
@@ -1104,12 +1245,19 @@
         const s = await resp.json();
         const dot = document.getElementById('statusDot');
         const text = document.getElementById('statusText');
+        const uptime = Math.floor(Number(s.uptime || 0));
+        const uh = Math.floor(uptime / 3600);
+        const um = Math.floor((uptime % 3600) / 60);
+        const scheduleText = s.next_run ? `Next scheduled run ${new Date(s.next_run).toLocaleString()} · Agent uptime ${uh}h ${um}m` : `Agent uptime ${uh}h ${um}m · Schedule disabled`;
+        document.getElementById('scheduleSummary').textContent = scheduleText;
 
         if (s.running) {
             dot.className = 'status-dot active';
             text.textContent = 'Running (' + (s.current_step || '...') + ')';
             document.getElementById('startBtn').disabled = true;
             document.getElementById('stopBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = !!s.paused;
+            document.getElementById('resumeBtn').disabled = !s.paused;
             document.getElementById('progressFill').style.width = s.progress + '%';
             document.getElementById('stepText').textContent = s.current_step + ' (' + s.stories_done + '/' + s.story_count + ' stories)';
 
@@ -1132,6 +1280,8 @@
             }
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('resumeBtn').disabled = true;
             stopTimer();
             if (s.current_step === 'complete') {
                 toast('Pipeline completed!', 'info');
@@ -1209,20 +1359,30 @@
         document.getElementById('statRuns').textContent = data.total_runs;
         document.getElementById('statStories').textContent = data.total_stories;
         document.getElementById('statRendered').textContent = data.total_rendered;
-        document.getElementById('statStorage').textContent = `${data.total_size_mb} MB used`;
+        document.getElementById('statStorage').textContent = 'Video files on disk';
+        document.getElementById('throughputSummary').textContent = Number(data.total_stories || 0).toLocaleString();
+        document.getElementById('storageSummary').textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
 
         if (charts.stories) charts.stories.destroy();
         if (charts.sizes) charts.sizes.destroy();
 
         charts.stories = new Chart(document.getElementById('storiesChart'), {
             type: 'bar',
-            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories', data: data.runs.map(r=>r.stories), backgroundColor: '#0071e3', borderRadius:6 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories processed', data: data.runs.map(r=>r.stories), backgroundColor: 'rgba(0, 113, 227, .82)', hoverBackgroundColor: '#0077ed', borderRadius: 8, borderSkipped: false, maxBarThickness: 28 }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${ctx.parsed.y} stories processed` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { precision: 0, color: '#86868b', font: { size: 10 } } } } }
         });
         charts.sizes = new Chart(document.getElementById('sizesChart'), {
             type: 'line',
-            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Size (MB)', data: data.runs.map(r=>r.size_mb), borderColor: '#af52de', fill: false }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Rendered storage', data: data.runs.map(r=>r.size_mb), borderColor: '#5856d6', backgroundColor: 'rgba(88, 86, 214, .12)', fill: true, tension: .38, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2, pointBorderColor: '#5856d6' }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: { duration: 1100, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${Number(ctx.parsed.y || 0).toFixed(1)} MB rendered` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { color: '#86868b', font: { size: 10 }, callback: value => `${value} MB` } } } }
+        });
+        requestAnimationFrame(() => {
+            document.getElementById('storiesChartStage').classList.remove('reveal');
+            document.getElementById('sizesChartStage').classList.remove('reveal');
+            void document.getElementById('storiesChartStage').offsetWidth;
+            void document.getElementById('sizesChartStage').offsetWidth;
+            document.getElementById('storiesChartStage').classList.add('reveal');
+            document.getElementById('sizesChartStage').classList.add('reveal');
         });
     }
 
@@ -1259,6 +1419,7 @@
             const msg = esc(data.message || data.error || 'Connect YouTube OAuth credentials in Setup & Settings to view live subscriber metrics & video view performance.');
             content.innerHTML = `<div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">${msg}</div>`;
             document.getElementById('ytAuthBtn').disabled = false;
+            document.getElementById('ytAuthBtn').style.display = 'inline-flex';
             document.getElementById('ytDisconnectBtn').style.display = 'none';
             return;
         }
@@ -1266,8 +1427,12 @@
         badge.className = 'badge badge-green';
         badge.textContent = 'Connected';
         document.getElementById('ytAuthBtn').disabled = true;
+        document.getElementById('ytAuthBtn').style.display = 'none';
         document.getElementById('ytDisconnectBtn').style.display = 'inline-flex';
-        document.getElementById('ytStatus').textContent = 'Connected & Syncing';
+        document.getElementById('ytStatus').textContent = `Connected to ${data.channel.name || 'YouTube'} · ready to publish`;
+        const account = document.getElementById('ytAccountDetails');
+        account.style.display = 'block';
+        account.innerHTML = `<strong>${esc(data.channel.name || 'YouTube account')}</strong><span>${Number(data.channel.subscribers || 0).toLocaleString()} subscribers · ${Number(data.channel.total_videos || 0).toLocaleString()} videos · public publishing enabled</span>`;
 
         const ch = data.channel;
         const an = data.analytics_30d || {};
@@ -1345,11 +1510,11 @@
 
     // Costs
     async function loadCosts() {
-        const resp = await fetch('/api/costs');
+        const resp = await fetch('/api/analytics');
         const data = await resp.json();
-        const el = document.getElementById('statCost');
+        const el = document.getElementById('statStorageValue');
         el.classList.remove('loading');
-        el.textContent = `$${data.estimated_cost_usd.toFixed(4)}`;
+        el.textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
     }
 
     // Feeds
@@ -1411,6 +1576,92 @@
         toast('Alerts saved', 'info');
     }
 
+    async function loadNotifications() {
+        const resp = await fetch('/api/notifications');
+        if (!resp.ok) return;
+        document.getElementById('slackWebhook').value = '';
+        document.getElementById('emailTo').value = '';
+    }
+
+    async function loadSettings() {
+        const resp = await fetch('/api/settings');
+        settingsData = await resp.json();
+        const p = settingsData.pipeline || {};
+        const m = settingsData.model || {};
+        const c = settingsData.content || {};
+        document.getElementById('videosPerRun').value = p.videos_per_run || 1;
+        document.getElementById('skipPublish').checked = p.skip_publish !== false;
+        document.getElementById('maxDuration').value = p.max_duration_seconds || 60;
+        document.getElementById('modelProvider').value = m.provider || 'groq';
+        document.getElementById('modelId').value = m.model_id || '';
+        const configuredProviders = m.configured_providers || {};
+        const activeProvider = m.provider || 'groq';
+        document.getElementById('modelKeyStatus').textContent = configuredProviders[activeProvider] ? 'Key configured for this provider' : 'API key required for this provider';
+        document.getElementById('topicPrompt').value = c.topic_prompt || '';
+        document.getElementById('brandVoice').value = c.brand_voice || 'engaging_news';
+        document.getElementById('activeProviderStatus').textContent = `${m.provider || 'groq'} · ${m.model_id || 'model not selected'}`;
+        document.querySelectorAll('.provider-card[data-provider]').forEach(card => {
+            card.classList.toggle('active', card.dataset.provider === activeProvider);
+        });
+        loadProviderModels(activeProvider, m.model_id || '');
+        document.getElementById('runConfigSummary').textContent = `${p.videos_per_run || 1} video${(p.videos_per_run || 1) === 1 ? '' : 's'} per run · ${p.skip_publish === false ? 'publishing enabled' : 'render only'}`;
+    }
+
+    async function saveSettings() {
+        const apiKey = document.getElementById('modelApiKey').value.trim();
+        const model = { provider: document.getElementById('modelProvider').value, model_id: document.getElementById('modelId').value.trim() };
+        if (apiKey) model.api_key = apiKey;
+        const body = { pipeline: { videos_per_run: parseInt(document.getElementById('videosPerRun').value), skip_publish: document.getElementById('skipPublish').checked, max_duration_seconds: parseInt(document.getElementById('maxDuration').value) }, model, content: { topic_prompt: document.getElementById('topicPrompt').value.trim(), brand_voice: document.getElementById('brandVoice').value } };
+        const resp = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        if (resp.ok) { document.getElementById('modelApiKey').value = ''; await loadSettings(); toast('Pipeline and model settings saved', 'success'); }
+    }
+
+    function selectModel(provider, modelId, card) {
+        document.getElementById('modelProvider').value = provider;
+        document.getElementById('modelId').value = modelId;
+        loadProviderModels(provider, modelId);
+        document.querySelectorAll('.provider-card[data-provider]').forEach(item => item.classList.remove('active'));
+        card.classList.add('active');
+        document.getElementById('activeProviderStatus').textContent = `${provider} · ${modelId}`;
+        const configured = (settingsData && settingsData.model && settingsData.model.configured_providers || {})[provider];
+        document.getElementById('modelKeyStatus').textContent = configured ? 'Key configured for this provider' : 'API key required for this provider';
+    }
+
+    function filterProviders(query) {
+        const needle = query.trim().toLowerCase();
+        document.querySelectorAll('.provider-card[data-provider]').forEach(card => {
+            card.style.display = !needle || card.textContent.toLowerCase().includes(needle) ? 'flex' : 'none';
+        });
+    }
+
+    function providerChanged(provider) {
+        const card = document.querySelector(`.provider-card[data-provider="${provider}"]`);
+        const fallback = card ? card.dataset.model : '';
+        if (card) selectModel(provider, fallback, card);
+    }
+
+    async function loadProviderModels(provider, selectedModel = '') {
+        const catalog = document.getElementById('modelCatalog');
+        const status = document.getElementById('modelCatalogStatus');
+        catalog.innerHTML = '<option value="">Loading models...</option>';
+        const resp = await fetch('/api/models?provider=' + encodeURIComponent(provider));
+        const data = await resp.json();
+        catalog.innerHTML = '<option value="">Select a model or use custom ID</option>' + (data.models || []).map(model => `<option value="${esc(model)}">${esc(model)}</option>`).join('');
+        const currentModel = selectedModel || document.getElementById('modelId').value;
+        const selectedExists = (data.models || []).includes(currentModel);
+        catalog.value = selectedExists ? currentModel : '';
+        if (!selectedExists && data.models && data.models.length && !selectedModel) {
+            document.getElementById('modelId').value = data.models[0];
+            catalog.value = data.models[0];
+        }
+        status.textContent = data.source === 'api' ? 'Loaded from provider API' : 'Built-in catalog; custom IDs supported';
+        if (data.warning) status.textContent += ' · API unavailable, using catalog';
+    }
+
+    function modelCatalogChanged(model) {
+        if (model) document.getElementById('modelId').value = model;
+    }
+
     async function testNotification() {
         await fetch('/api/notifications/test', { method: 'POST' });
         toast('Notification test triggered', 'info');
@@ -1418,11 +1669,13 @@
 
     // Init
     connectWS();
+    loadSettings();
     loadRuns();
     loadAnalytics();
     loadYouTube();
     loadCosts();
     pollStatus();
+    if (window.lucide) lucide.createIcons();
     </script>
 </body>
 </html>

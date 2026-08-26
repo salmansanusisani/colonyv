@@ -1,0 +1,35 @@
+{
+  "hook": "What would an OpenAI model called Sol change?",
+  "body": "This is a visual concept test, not a report of a confirmed OpenAI release. | Imagine Sol as a model built around clear reasoning, fast interaction, and useful tool decisions. | The important question is not the name. It is how much work the model can remove from a real workflow.",
+  "cta": "Follow Colony V for the signal behind the model.",
+  "estimated_duration": 20,
+  "format": "editorial concept brief",
+  "claims_used": [
+    "This video is a concept test, not a confirmed product announcement.",
+    "The visual concept focuses on reasoning, interaction, and tool decisions."
+  ],
+  "claims_not_used": [],
+  "suggested_visual_beats": [
+    {
+      "name": "beat_01_openai_identity",
+      "narration_text": "This is a visual concept test, not a report of a confirmed OpenAI release.",
+      "beat_type": "kinetic_text",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/OpenAI_Logo.svg?width=512",
+      "asset_subject": "OpenAI logo",
+      "asset_type": "logo",
+      "image_treatment": "logo_mark",
+      "asset_source_url": "https://commons.wikimedia.org/wiki/File:OpenAI_Logo.svg",
+      "asset_credit": "OpenAI logo via Wikimedia Commons"
+    },
+    {
+      "name": "beat_02_sol_capability",
+      "narration_text": "Imagine Sol as a model built around clear reasoning, fast interaction, and useful tool decisions.",
+      "beat_type": "diagram"
+    },
+    {
+      "name": "beat_03_workflow_value",
+      "narration_text": "The important question is not the name. It is how much work the model can remove from a real workflow.",
+      "beat_type": "stat_reveal"
+    }
+  ]
+}

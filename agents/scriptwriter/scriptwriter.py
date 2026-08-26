@@ -21,7 +21,7 @@ import jsonschema
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "script_output.schema.json"
 
-LLM_MODEL_ID = "groq/openai/gpt-oss-120b"
+LLM_MODEL_ID = os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
 
@@ -57,6 +57,11 @@ def sanitize_script_output(script: dict) -> dict:
         }
         if "image_url" in b and isinstance(b["image_url"], str) and b["image_url"].startswith("http"):
             beat_obj["image_url"] = b["image_url"]
+        for field in ("asset_subject", "asset_type", "image_treatment", "asset_source_url", "asset_credit"):
+            if isinstance(b.get(field), str) and b[field]:
+                beat_obj[field] = b[field]
+        if b.get("visual_style") in {"editorial", "image_led", "stat_led", "diagram", "timeline", "quiet"}:
+            beat_obj["visual_style"] = b["visual_style"]
         sanitized_beats.append(beat_obj)
 
     if not sanitized_beats:
@@ -107,6 +112,7 @@ def generate_script(research: dict, api_key: str) -> dict | None:
     angle = research.get("recommended_angle", "")
     confirmed = research.get("what_is_confirmed", [])
     uncertain = research.get("what_is_uncertain", [])
+    editorial_assets = research.get("editorial_assets", [])
 
     claims_text = "\n".join(
         f"- {c.get('text', '')} (verified: {c.get('verified', False)})"
@@ -117,7 +123,8 @@ def generate_script(research: dict, api_key: str) -> dict | None:
         for c in contradictions if isinstance(c, dict)
     ) if contradictions else "None"
 
-    prompt = f"""You are a video scriptwriter for a tech/AI news channel. Write a script for a 30-45 second portrait video (1080x1920).
+    max_duration = int(os.environ.get("COLONY_MAX_DURATION_SECONDS", "60"))
+    prompt = f"""You are a video scriptwriter for a tech/AI news channel. Write a concise portrait video script (1080x1920).
 
 STORY:
 {summary}
@@ -136,7 +143,7 @@ UNCERTAIN FACTS: {', '.join(uncertain)}
 INSTRUCTIONS:
 Write a script with exactly these parts:
 1. HOOK (1-2 sentences): Attention-grabbing opener. Max 20 words.
-2. BODY (3-5 beats): Each beat covers one key point. Each beat is 2-4 sentences. Total body 120-200 words.
+2. BODY (2-3 beats): Each beat covers one key point in 1-2 short sentences.
 3. CTA (1 sentence): Subscribe/follow call-to-action. Max 15 words.
 
 CRITICAL RULES:
@@ -144,7 +151,7 @@ CRITICAL RULES:
 - Use US English, no markdown, no special characters
 - Do NOT hallucinate stats. Only use claims from the research above.
 - The body beats will be rendered as separate visual scenes
-- Keep total video under 60 seconds: 3-4 seconds hook, 20-30 seconds body, 5 seconds CTA
+- Keep the spoken narration below {max_duration} seconds. Prefer 3-4 seconds hook, 20-30 seconds body, and a short CTA.
 - Max 3 visual beats in the body
 
 Return a JSON object with:
@@ -155,10 +162,15 @@ Return a JSON object with:
 - format: string (e.g. "stat-heavy explainer", "mechanism-diagram explainer", "news brief")
 - claims_used: array of strings (which claims from research are used)
 - claims_not_used: array of strings (which claims were excluded)
-- suggested_visual_beats: array of objects, each with:
+ - suggested_visual_beats: array of objects, each with:
   - name: string (e.g. "beat_01_overview")
   - narration_text: string (the narration for this beat)
-  - beat_type: one of "stat_reveal", "diagram", "kinetic_text", "image", "custom"
+   - beat_type: one of "stat_reveal", "diagram", "kinetic_text", "image", "custom"
+   - asset_subject, asset_type, image_treatment, asset_source_url, asset_credit when a real editorial asset supports the beat
+   - visual_style: one of editorial, image_led, stat_led, diagram, timeline, quiet
+
+AVAILABLE EDITORIAL ASSETS:
+{json.dumps(editorial_assets, ensure_ascii=True)}
 
 Return ONLY valid JSON (no markdown, no explanation)."""
 
@@ -213,7 +225,7 @@ def main():
     parser = argparse.ArgumentParser(description="ScriptWriter Agent")
     parser.add_argument("--research-json", type=str, help="Path to ResearchOutput JSON file")
     parser.add_argument("--stdin", action="store_true", help="Read ResearchOutput from stdin")
-    parser.add_argument("--api-key", type=str, default=os.environ.get("GROQ_API_KEY", ""))
+    parser.add_argument("--api-key", type=str, default=os.environ.get("COLONY_API_KEY") or os.environ.get("GROQ_API_KEY", ""))
     args = parser.parse_args()
 
     if not args.api_key:
@@ -253,7 +265,7 @@ def main():
     print(f"  Hook: {hook_words} words")
     print(f"  Body: {body_words} words")
     print(f"  CTA: {cta_words} words")
-    print(f"  Total: {total} words (target: 150-250)")
+    print(f"  Total: {total} words (target: 80-120)")
     print(f"  Beats: {len(beats)}")
     print(f"  Format: {script.get('format', 'N/A')}")
     print(f"  Duration: {script.get('estimated_duration', 'N/A')}s")

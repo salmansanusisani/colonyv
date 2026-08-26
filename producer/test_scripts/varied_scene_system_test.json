@@ -1,0 +1,17 @@
+{
+  "hook": "One story. Six different visual languages.",
+  "body": "Editorial type makes the claim clear. | A real image gives the subject identity. | 500 billion dollars makes the scale impossible to miss. | First the model arrives, then the tools change, then the workflow moves.",
+  "cta": "Follow Colony V for stories that move with meaning.",
+  "estimated_duration": 25,
+  "format": "varied scene system test",
+  "claims_used": ["This is a visual system test."],
+  "claims_not_used": [],
+  "suggested_visual_beats": [
+    {"name": "beat_01_editorial", "narration_text": "Editorial type makes the claim clear.", "beat_type": "kinetic_text", "visual_style": "editorial"},
+    {"name": "beat_02_image", "narration_text": "A real image gives the subject identity.", "beat_type": "image", "visual_style": "image_led", "image_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/OpenAI_Logo.svg?width=512", "asset_type": "logo", "image_treatment": "logo_mark", "asset_subject": "OpenAI logo", "asset_credit": "OpenAI logo via Wikimedia Commons"},
+    {"name": "beat_03_stat", "narration_text": "500 billion dollars makes the scale impossible to miss.", "beat_type": "stat_reveal", "visual_style": "stat_led"},
+    {"name": "beat_04_timeline", "narration_text": "First the model arrives. Then the tools change. Then the workflow moves.", "beat_type": "custom", "visual_style": "timeline"},
+    {"name": "beat_05_diagram", "narration_text": "Input becomes a decision, and a decision becomes an action.", "beat_type": "diagram", "visual_style": "diagram"},
+    {"name": "beat_06_quiet", "narration_text": "The best design leaves room for the idea to land.", "beat_type": "custom", "visual_style": "quiet"}
+  ]
+}

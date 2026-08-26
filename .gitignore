@@ -6,9 +6,11 @@ node_modules/
 producer/renders/
 producer/public/audio/
 producer/public/sfx/
+producer/public/images/
 producer/src/timing.json
 agents/monitor/seen.json
 agents/publisher/client_secret.json
 agents/publisher/youtube_token.json
 *.mp4
 .env
+config/settings.json

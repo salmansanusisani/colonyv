@@ -35,7 +35,7 @@ DEFAULT_FEEDS = [
 
 FEEDS_PATH = Path(__file__).resolve().parent / "feeds.json"
 
-LLM_MODEL_ID = "groq/openai/gpt-oss-120b"
+LLM_MODEL_ID = os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
 
@@ -68,6 +68,8 @@ def fetch_entries(feeds, max_per_feed=10):
     entries = []
     for feed_info in feeds:
         url = feed_info["url"]
+        if feed_info.get("enabled", True) is False:
+            continue
         category = feed_info["category"]
         try:
             d = feedparser.parse(url)
@@ -109,6 +111,9 @@ Score these {len(entries)} stories. For EACH story provide:
 - novelty (0.0-1.0): how unique vs routine coverage
 - urgency (0.0-1.0): how time-sensitive
 - format: one of "stat-heavy explainer", "mechanism-diagram explainer", "breaking news", "deep dive"
+
+Audience topic focus:
+{os.environ.get('COLONY_TOPIC_PROMPT', 'General technology, AI, and crypto news')}
 
 Stories:
 {entries_text}
@@ -196,7 +201,7 @@ def main():
     parser.add_argument("--seen-file", type=str,
                         default=str(PROJECT_ROOT / "agents" / "monitor" / "seen.json"))
     parser.add_argument("--api-key", type=str,
-                        default=os.environ.get("GROQ_API_KEY", ""))
+                        default=os.environ.get("COLONY_API_KEY") or os.environ.get("GROQ_API_KEY", ""))
     args = parser.parse_args()
 
     if not args.api_key:

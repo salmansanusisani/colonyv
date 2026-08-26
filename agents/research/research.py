@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import time
+from urllib.parse import urljoin
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,7 @@ import jsonschema
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "research_output.schema.json"
 
-LLM_MODEL_ID = "groq/openai/gpt-oss-120b"
+LLM_MODEL_ID = os.environ.get("COLONY_MODEL_ID", "groq/openai/gpt-oss-120b")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 15
@@ -74,6 +75,35 @@ def fetch_html(url: str) -> str | None:
     return None
 
 
+def extract_editorial_assets(html: str, source_url: str) -> list[dict]:
+    """Collect article-provided images with source metadata for later validation."""
+    soup = BeautifulSoup(html, "html.parser")
+    found = []
+    seen = set()
+    candidates = []
+    for tag in soup.find_all("meta"):
+        prop = str(tag.get("property", "")).lower()
+        name = str(tag.get("name", "")).lower()
+        if prop in {"og:image", "og:image:url"} or name in {"twitter:image", "twitter:image:src"}:
+            candidates.append((tag.get("content", ""), "article_image"))
+    for image in soup.find_all("img")[:20]:
+        candidates.append((image.get("src", ""), "article_image"))
+    for raw_url, asset_type in candidates:
+        image_url = urljoin(source_url, str(raw_url).strip())
+        if not image_url.startswith(("http://", "https://")) or image_url in seen:
+            continue
+        seen.add(image_url)
+        found.append({
+            "url": image_url,
+            "source_url": source_url,
+            "asset_type": asset_type,
+            "subject": "article lead image",
+            "credit": "Source article",
+            "license_note": "Review source terms before publication",
+        })
+    return found[:6]
+
+
 EXTRACTION_STRATEGIES = [
     # Strategy 1: article tag
     lambda soup: "\n".join(p.get_text(strip=True) for p in soup.find_all("article")[:1]),
@@ -119,6 +149,7 @@ def self_healing_extract(url: str) -> dict[str, Any]:
         return {"content": "", "strategy": "failed", "success": False, "error": "fetch_failed"}
 
     content, strategy_idx = extract_content(html, 0)
+    assets = extract_editorial_assets(html, url)
     strategy_names = ["article_tag", "main_section", "largest_div", "all_paragraphs", "body_text"]
 
     if content:
@@ -127,6 +158,7 @@ def self_healing_extract(url: str) -> dict[str, Any]:
             "strategy": strategy_names[strategy_idx],
             "success": True,
             "attempts": strategy_idx + 1,
+            "assets": assets,
         }
 
     # All strategies failed - try fetching raw and sending to LLM
@@ -138,9 +170,10 @@ def self_healing_extract(url: str) -> dict[str, Any]:
             "strategy": "raw_fallback",
             "success": True,
             "attempts": len(EXTRACTION_STRATEGIES) + 1,
+            "assets": assets,
         }
 
-    return {"content": "", "strategy": "all_failed", "success": False, "error": "no_content"}
+    return {"content": "", "strategy": "all_failed", "success": False, "error": "no_content", "assets": assets}
 
 
 # --- LLM analysis ---
@@ -187,6 +220,8 @@ Based on these sources, produce a JSON object with:
 8. publication_date: YYYY-MM-DD of primary source
 9. primary_source: URL of primary source
 10. secondary_sources: array of secondary source URLs
+11. entities: array of named people, companies, products, and locations
+12. editorial_assets: array of relevant image objects using source URLs when available. Each object must contain url, source_url, asset_type, subject, credit, and license_note.
 
 Return ONLY valid JSON (no markdown, no explanation)."""
 
@@ -294,6 +329,12 @@ def sanitize_research_output(analysis: dict, story_id: str, extracted: list[dict
         "publication_date": pub_date,
         "primary_source": str(primary_url),
         "secondary_sources": [str(x) for x in analysis.get("secondary_sources", [])],
+        "entities": [str(x) for x in analysis.get("entities", []) if x],
+        "editorial_assets": [
+            {key: value for key, value in asset.items() if value not in (None, "")}
+            for asset in analysis.get("editorial_assets", [])
+            if isinstance(asset, dict) and asset.get("url")
+        ],
     }
 
 
@@ -301,7 +342,7 @@ def main():
     parser = argparse.ArgumentParser(description="Research Agent")
     parser.add_argument("--story-json", type=str, help="Path to MonitorOutput JSON file")
     parser.add_argument("--stdin", action="store_true", help="Read MonitorOutput from stdin")
-    parser.add_argument("--api-key", type=str, default=os.environ.get("GROQ_API_KEY", ""))
+    parser.add_argument("--api-key", type=str, default=os.environ.get("COLONY_API_KEY") or os.environ.get("GROQ_API_KEY", ""))
     args = parser.parse_args()
 
     if not args.api_key:
@@ -344,6 +385,7 @@ def main():
                 "outlet": src.get("title", "Unknown"),
                 "content": result["content"],
                 "strategy": result["strategy"],
+                "assets": result.get("assets", []),
             })
         else:
             print(f"    FAILED ({result['error']})")
@@ -368,6 +410,9 @@ def main():
 
     # Build output
     output = sanitize_research_output(analysis, story_id, extracted, sources)
+    extracted_assets = [asset for article in extracted for asset in article.get("assets", [])]
+    output["editorial_assets"] = output.get("editorial_assets", []) + extracted_assets
+    output["editorial_assets"] = list({asset["url"]: asset for asset in output["editorial_assets"]}.values())[:12]
 
     # Validate
     if validate_output(output, schema):

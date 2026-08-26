@@ -163,6 +163,29 @@ colonyv/
 | `GROQ_API_KEY` | Yes | Groq API key for LLM calls |
 | `REMOTION_CHROMIUM_EXECUTABLE_PATH` | No | Path to Chromium (default: `/usr/bin/chromium`) |
 
+## Dashboard Configuration
+
+Open **Setup & Settings** before running the pipeline. The settings are stored locally in `config/settings.json`, which is ignored by git:
+
+- `videos_per_run`: number of stories processed for each manual or scheduled run
+- `skip_publish`: render-only mode when enabled
+- YouTube publishing is public by design for dashboard runs.
+- `max_duration_seconds`: narration target passed to the scriptwriter
+- `model.provider`: currently LiteLLM-compatible providers
+- `model.model_id`: provider model identifier
+- `model.api_keys`: separate provider keys stored locally and masked in the dashboard API
+- content categories, brand voice, RSS feeds, scheduler, and notifications
+
+Use the dashboard controls as follows:
+
+- **Run Pipeline** starts a new run using the saved settings.
+- **Pause** freezes the active child process and pauses timeout accounting.
+- **Resume** continues the paused process.
+- **Stop Completely** terminates the process tree and marks the run stopped.
+- The live terminal receives every subprocess line through WebSocket and each run also writes `output/<run_id>/pipeline.log`.
+
+The model screen supports Groq, OpenAI-compatible endpoints, Anthropic Claude, and Google Gemini through LiteLLM. It provides a built-in model catalog, attempts live provider model discovery when a key is configured, and always allows a custom LiteLLM model ID.
+
 ## Key Files
 
 | File | Purpose |

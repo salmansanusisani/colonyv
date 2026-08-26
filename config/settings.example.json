@@ -1,0 +1,16 @@
+{
+  "pipeline": {
+    "videos_per_run": 1,
+    "skip_publish": true,
+    "max_duration_seconds": 60
+  },
+  "model": {
+    "provider": "groq",
+    "model_id": "groq/openai/gpt-oss-120b",
+    "api_keys": {}
+  },
+  "content": {
+    "categories": ["ai", "tech", "crypto"],
+    "brand_voice": "engaging_news"
+  }
+}

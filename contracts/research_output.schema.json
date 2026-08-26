@@ -140,6 +140,28 @@
         "format": "uri"
       },
       "description": "URLs of secondary corroborating sources."
+    },
+    "entities": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "People, companies, products, and locations relevant to the story."
+    },
+    "editorial_assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "source_url", "asset_type", "subject"],
+        "properties": {
+          "url": {"type": "string", "format": "uri"},
+          "source_url": {"type": "string", "format": "uri"},
+          "asset_type": {"type": "string", "enum": ["article_image", "person", "logo", "product", "screenshot", "location"]},
+          "subject": {"type": "string"},
+          "credit": {"type": "string"},
+          "license_note": {"type": "string"},
+          "width": {"type": "integer", "minimum": 0},
+          "height": {"type": "integer", "minimum": 0}
+        }
+      }
     }
   },
   "additionalProperties": false

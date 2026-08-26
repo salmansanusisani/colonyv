@@ -71,11 +71,17 @@
             "type": "string",
             "format": "uri",
             "description": "Optional image URL for beats that use KenBurnsImage."
+          },
+          "asset_subject": {"type": "string"},
+          "asset_type": {"type": "string", "enum": ["article_image", "person", "logo", "product", "screenshot", "location"]},
+          "image_treatment": {"type": "string", "enum": ["editorial_frame", "portrait_cutout", "product_focus", "logo_mark", "screenshot_focus", "location_wide"]},
+          "asset_source_url": {"type": "string", "format": "uri"},
+          "asset_credit": {"type": "string"}
+          ,"visual_style": {"type": "string", "enum": ["editorial", "image_led", "stat_led", "diagram", "timeline", "quiet"]}
           }
-        }
-      },
-      "description": "Ordered list of visual beats. Each beat gets its own narration audio — this is load-bearing for Phase 1's per-beat audio generation."
-    }
+        },
+        "description": "Ordered list of visual beats. Each beat gets its own narration audio — this is load-bearing for Phase 1's per-beat audio generation."
+      }
   },
   "additionalProperties": false
 }
