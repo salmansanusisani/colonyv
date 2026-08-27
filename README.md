@@ -1,12 +1,49 @@
-# ColonyV
+<p align="center">
+  <img src="./logo2.png" alt="ColonyV" width="720">
+</p>
 
-Automated AI video news pipeline. Monitors RSS feeds, researches stories with LLMs, writes scripts, renders portrait videos (1080x1920), and publishes to YouTube — all from a web dashboard.
+<h1 align="center">ColonyV</h1>
 
-## How It Works
+<p align="center"><strong>An autonomous editorial newsroom that discovers, verifies, produces, and publishes story-specific short-form video.</strong></p>
 
+<p align="center">
+  <a href="https://colonyv-c5vlham23a-uc.a.run.app">Live Cloud Run App</a> ·
+  <a href="./README_GOOGLE_CLOUD.md">Google Cloud Setup</a>
+</p>
+
+ColonyV is built for the **Taskmaster** track of the All Things Agentic Hackathon. Gemini and Google ADK make editorial decisions, Firestore records live agent state, Remotion creates 1080x1920 motion graphics, and YouTube receives the final public video.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Trigger[Creator or scheduled trigger] --> Dashboard[ColonyV Dashboard]
+    Dashboard --> Run[Cloud Run FastAPI service]
+    Run --> Director[Google ADK Editorial Director]
+    Director <--> Gemini[Gemini 3.5 Flash on Vertex AI]
+
+    Director --> Discovery[Discovery Agent]
+    Discovery --> Research[Research Agent]
+    Research --> Assets[Editorial Asset Scout]
+    Assets --> Script[Scriptwriter and Visual Director]
+    Script --> Producer[Remotion Visual Producer]
+    Producer --> Publisher[YouTube Publisher]
+    Publisher --> Analyst[Analyst Agent]
+
+    Run <--> Firestore[(Firestore run state and trace)]
+    Assets -. next phase .-> Storage[(Cloud Storage assets)]
+    Director -. next phase .-> PubSub[Pub/Sub events]
+    PubSub -. next phase .-> RenderJob[Cloud Run Render Job]
+    RenderJob -.-> Storage
+    Storage -.-> Publisher
 ```
-RSS Feeds → Monitor → Research → Scriptwriter → Video Renderer → YouTube
-              (LLM)    (LLM)      (LLM)        (Remotion)      (OAuth2)
+
+Current production path:
+
+```text
+Cloud Run dashboard/API -> Google ADK Editorial Director -> Gemini on Vertex AI
+                       -> Firestore run state and live Agent Workspace
+                       -> Discovery -> Research -> Script -> Remotion -> YouTube -> Analyst
 ```
 
 **6 autonomous agents** run sequentially per story:

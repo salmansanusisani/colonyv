@@ -9,7 +9,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Michroma&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-    <script src="https://unpkg.com/lucide@0.468.0"></script>
     <style>
         :root {
             --bg-body: #f5f5f7;
@@ -279,7 +278,8 @@
         .settings-panel { display:none; animation:viewFadeIn .2s ease; }
         .settings-panel.active { display:block; }
         .icon-button { width:34px; height:34px; padding:0; border-radius:10px; }
-        .icon-button svg, .btn-apple svg, .segmented-control svg { width:16px; height:16px; stroke-width:2; }
+        [data-icon] { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
+        [data-icon] svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
         .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
         .provider-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; margin-bottom:22px; }
         .provider-card { display:flex; align-items:center; gap:12px; width:100%; padding:14px; text-align:left; border:1px solid var(--border-light); background:#fff; border-radius:14px; cursor:pointer; color:var(--text-primary); transition:all .2s ease; }
@@ -789,7 +789,7 @@
         </div>
 
         <button class="header-settings-button" aria-label="Open Settings" title="Settings" onclick="switchView('settings', this)">
-            <i data-lucide="settings"></i> <span>Settings</span>
+            <span data-icon="settings"></span> <span>Settings</span>
         </button>
 
     </header>
@@ -819,16 +819,16 @@
 
                 <div style="display:flex; gap:10px;">
                     <button id="startBtn" class="btn-apple btn-apple-primary" onclick="startPipeline()">
-                        <i data-lucide="play"></i> Run Pipeline
+                        <span data-icon="play"></span> Run Pipeline
                     </button>
                     <button id="pauseBtn" class="btn-apple btn-apple-secondary" onclick="pausePipeline()" disabled>
-                        <i data-lucide="pause"></i> Pause
+                        <span data-icon="pause"></span> Pause
                     </button>
                     <button id="resumeBtn" class="btn-apple btn-apple-secondary" onclick="resumePipeline()" disabled>
-                        <i data-lucide="play"></i> Resume
+                        <span data-icon="play"></span> Resume
                     </button>
                     <button id="stopBtn" class="btn-apple btn-apple-danger" onclick="stopPipeline()" disabled>
-                        <i data-lucide="square"></i> Stop Completely
+                        <span data-icon="square"></span> Stop Completely
                     </button>
                 </div>
             </div>
@@ -857,7 +857,7 @@
                     <div class="agent-live">Live system</div>
                 </div>
                 <div class="agent-flow" id="agentFlow"></div>
-                <button class="terminal-toggle" onclick="toggleTerminalVisibility()"><i data-lucide="terminal-square"></i><span id="terminalToggleText">Show terminal output</span></button>
+                <button class="terminal-toggle" onclick="toggleTerminalVisibility()"><span data-icon="terminal"></span><span id="terminalToggleText">Show terminal output</span></button>
             </div>
 
             <!-- At-a-Glance Stat Cards -->
@@ -964,7 +964,7 @@
 
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;">
                 <button class="settings-back" onclick="switchView('dashboard')" aria-label="Back to Dashboard">
-                    <i data-lucide="arrow-left"></i> Back to Dashboard
+                    <span data-icon="arrow-left"></span> Back to Dashboard
                 </button>
                 <div style="font-size:15px; font-weight:700; color:var(--text-primary);">Settings</div>
             </div>
@@ -972,14 +972,14 @@
             <div class="settings-shell">
                 <nav class="settings-nav" aria-label="Settings sections">
                     <div class="card-title" style="padding:8px 12px 10px;">Settings</div>
-                    <button class="btn-apple" data-settings-tab="model" onclick="showSettingsTab('model', this)"><i data-lucide="cpu"></i> AI Model</button>
-                    <button class="btn-apple" data-settings-tab="content" onclick="showSettingsTab('content', this)"><i data-lucide="scan-search"></i> Content Focus</button>
-                    <button class="btn-apple" data-settings-tab="feeds" onclick="showSettingsTab('feeds', this)"><i data-lucide="rss"></i> RSS Sources</button>
-                    <button class="btn-apple" data-settings-tab="youtube" onclick="showSettingsTab('youtube', this)"><i data-lucide="youtube"></i> YouTube</button>
-                    <button class="btn-apple" data-settings-tab="pipeline" onclick="showSettingsTab('pipeline', this)"><i data-lucide="sliders-horizontal"></i> Pipeline</button>
-                    <button class="btn-apple" data-settings-tab="alerts" onclick="showSettingsTab('alerts', this)"><i data-lucide="bell"></i> Notifications</button>
-                    <button class="btn-apple" data-settings-tab="scheduler" onclick="showSettingsTab('scheduler', this)"><i data-lucide="calendar-clock"></i> Scheduler</button>
-                    <button class="btn-apple" data-settings-tab="manual" onclick="showSettingsTab('manual', this)"><i data-lucide="book-open"></i> Manual</button>
+                    <button class="btn-apple" data-settings-tab="model" onclick="showSettingsTab('model', this)"><span data-icon="cpu"></span> AI Model</button>
+                    <button class="btn-apple" data-settings-tab="content" onclick="showSettingsTab('content', this)"><span data-icon="search"></span> Content Focus</button>
+                    <button class="btn-apple" data-settings-tab="feeds" onclick="showSettingsTab('feeds', this)"><span data-icon="rss"></span> RSS Sources</button>
+                    <button class="btn-apple" data-settings-tab="youtube" onclick="showSettingsTab('youtube', this)"><span data-icon="youtube"></span> YouTube</button>
+                    <button class="btn-apple" data-settings-tab="pipeline" onclick="showSettingsTab('pipeline', this)"><span data-icon="sliders"></span> Pipeline</button>
+                    <button class="btn-apple" data-settings-tab="alerts" onclick="showSettingsTab('alerts', this)"><span data-icon="bell"></span> Notifications</button>
+                    <button class="btn-apple" data-settings-tab="scheduler" onclick="showSettingsTab('scheduler', this)"><span data-icon="calendar"></span> Scheduler</button>
+                    <button class="btn-apple" data-settings-tab="manual" onclick="showSettingsTab('manual', this)"><span data-icon="book"></span> Manual</button>
                 </nav>
 
                 <div>
@@ -1195,10 +1195,10 @@ CONTROLS
         flow.innerHTML = items.map(agent => {
             const icon = agentIcons[agent.key] || 'bot';
             const status = agent.status || 'pending';
-            return `<div class="agent-node ${esc(status)}"><div class="agent-node-icon"><i data-lucide="${icon}"></i></div><span class="agent-node-name">${esc(agent.name)}</span><span class="agent-node-detail">${esc(agent.detail || agent.description || '')}</span><span class="agent-node-status">${esc(status)}</span></div>`;
+            return `<div class="agent-node ${esc(status)}"><div class="agent-node-icon"><span data-icon="${icon}"></span></div><span class="agent-node-name">${esc(agent.name)}</span><span class="agent-node-detail">${esc(agent.detail || agent.description || '')}</span><span class="agent-node-status">${esc(status)}</span></div>`;
         }).join('');
         document.getElementById('agentBoardMessage').textContent = message || (activeAgent ? `Working with ${activeAgent}` : 'The editorial team is standing by.');
-        if (window.lucide) lucide.createIcons();
+        hydrateIcons();
     }
 
     function toggleTerminalVisibility() {
@@ -1241,6 +1241,24 @@ CONTROLS
     }
 
     // WebSocket Stream
+    const iconPaths = {
+        settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.7 1.7-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.1h-2.4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L7 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H5.7v-2.4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L7 8.6l1.7-1.7.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.1h2.4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 8l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v2.4H21a1.7 1.7 0 0 0-1.6 1.6Z"/>',
+        play: '<path d="m8 5 11 7-11 7Z"/>', pause: '<path d="M7 5v14M17 5v14"/>', square: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+        terminal: '<path d="m4 17 5-5-5-5M12 19h8"/>', 'arrow-left': '<path d="m15 18-6-6 6-6M9 12h11"/>', cpu: '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>',
+        search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', rss: '<path d="M5 19h.01M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14"/>', youtube: '<path d="M21 12s0-4-1-5-2-1-3-1H7S4 6 3 7s-1 5-1 5 0 4 1 5 2 1 4 1h10c1 0 2 0 3-1s1-5 1-5Z"/><path d="m10 9 5 3-5 3Z"/>', bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>', calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
+        radar: '<circle cx="12" cy="12" r="8"/><path d="M12 12 18 6M12 4v2M20 12h-2M12 20v-2M4 12h2"/>', 'search-check': '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4M8 10.5l2 2 3.5-4"/>', 'pen-line': '<path d="m13 21 8-8-4-4-8 8-1 5Z"/><path d="m13 21-5-1 1-5M17 3a2.8 2.8 0 0 1 4 4L9 19"/>', clapperboard: '<path d="m3 7 18-4M3 7h18v14H3zM7 3l3 4M13 2l3 5"/>', send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>', 'brain-circuit': '<path d="M12 5a3 3 0 0 0-5.8 1A3 3 0 0 0 4 11a3 3 0 0 0 1 5.8A3 3 0 0 0 11 19h2a3 3 0 0 0 5.8-2A3 3 0 0 0 20 11a3 3 0 0 0-2.2-5.8A3 3 0 0 0 12 5Z"/><path d="M9 9h.01M15 9h.01M9 15h.01M15 15h.01M12 8v8M8 12h8"/>', bot: '<rect x="5" y="7" width="14" height="13" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6"/>'
+    };
+
+    function iconSvg(name) {
+        return `<svg viewBox="0 0 24 24" aria-hidden="true">${iconPaths[name] || iconPaths.bot}</svg>`;
+    }
+
+    function hydrateIcons() {
+        document.querySelectorAll('[data-icon]').forEach(element => {
+            element.innerHTML = iconSvg(element.dataset.icon);
+        });
+    }
+
     function connectWS() {
         ws = new WebSocket('ws://' + location.host + '/ws/logs');
         ws.onmessage = function(e) {
@@ -1764,7 +1782,7 @@ CONTROLS
     // Render an honest empty state immediately, then enrich it with live data.
     loadDashboardData();
     pollStatus();
-    if (window.lucide) lucide.createIcons();
+    hydrateIcons();
     </script>
 </body>
 </html>
