@@ -344,6 +344,7 @@ async def api_agent_run(request: Request):
         "story_count": stories,
         "stories_done": 0,
         "start_time": time.time(),
+        "stage_state": {},
     })
     reset_agent_activity()
     persist_pipeline_state()
@@ -374,6 +375,20 @@ async def api_agent_run(request: Request):
         run=run_id,
         skip=skip_publish,
     )
+
+    if bool(settings["pipeline"].get("async_stages", False)):
+        pipeline_state["stage_state"] = {"stories_target": stories, "run_id": run_id}
+        pipeline_state["current_step"] = "async-scheduled"
+        persist_pipeline_state(force=True)
+        from cloud import pubsub as ps
+
+        ps.publish_stage(
+            settings.get("cloud", {}).get("project_id") or os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
+            run_id,
+            "monitor",
+        )
+        log("Async pipeline scheduled: monitor stage published")
+        return {"status": "started", "mode": "adk-async", "run_id": run_id}
 
     asyncio.create_task(run_production_director(stories))
 
@@ -409,6 +424,77 @@ async def run_production_director(stories: int):
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
         persist_pipeline_state(force=True)
+
+
+async def handle_stage_message(run_id: str, stage: str, story_index: int, attempt: int) -> None:
+    """Execute one async pipeline stage and publish the next one(s)."""
+    from colonyv_agent import pipeline_runtime, stages
+
+    if runtime_state_run_id(run_id) != run_id:
+        pipeline_runtime.configure(
+            logger=log,
+            activity=set_agent_activity,
+            env=dict(os.environ),
+            out_dir=OUTPUT_DIR,
+            run=run_id,
+            skip=bool(settings["pipeline"].get("skip_publish", True)),
+        )
+
+    state = dict(pipeline_state.get("stage_state") or {})
+    state.setdefault("run_id", run_id)
+    state.setdefault("stories_target", int(settings["pipeline"].get("videos_per_run", 1)))
+
+    log(f"[async] running stage {stage} (story={story_index}, attempt={attempt})")
+    result = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: stages.run_stage(state, stage, story_index, attempt)
+    )
+
+    pipeline_state["stage_state"] = result["state"]
+    pipeline_state["current_step"] = f"stage:{stage}"
+    pipeline_state["agent_message"] = f"Async stage {stage}"
+    log(
+        f"[async] stage {stage} -> {result['decision']} "
+        f"next={[(s, i, a) for s, i, a in result.get('next', [])]}"
+    )
+
+    project_id = settings.get("cloud", {}).get("project_id") or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+    from cloud import pubsub as ps
+
+    if result.get("next"):
+        ps.publish_next(project_id, run_id, result)
+    else:
+        pipeline_state["progress"] = 100
+        pipeline_state["current_step"] = "complete"
+        pipeline_state["running"] = False
+        pipeline_state["start_time"] = None
+        log(f"[async] run {run_id} completed ({result.get('decision')})")
+    persist_pipeline_state(force=True)
+
+
+def runtime_state_run_id(run_id: str) -> str:
+    from colonyv_agent import pipeline_runtime as pr
+
+    return pr.run_id or run_id
+
+
+@app.post("/api/pubsub/run-stage")
+async def api_pubsub_run_stage(request: Request):
+    """Pub/Sub push webhook: executes one pipeline stage message."""
+    try:
+        payload = await request.json()
+        message = payload.get("message", {})
+        attrs = message.get("attributes", {})
+        run_id = attrs.get("run_id", "")
+        stage = attrs.get("stage", "")
+        story_index = int(attrs.get("story_index", 0))
+        attempt = int(attrs.get("attempt", 1))
+        if not run_id or stage not in {"monitor", "research", "script", "render", "publish", "analyst"}:
+            return JSONResponse({"error": "invalid message"}, 400)
+        asyncio.create_task(handle_stage_message(run_id, stage, story_index, attempt))
+        return JSONResponse({"ok": True, "ack": True})
+    except Exception as e:
+        log(f"[pubsub] handler error: {e}")
+        return JSONResponse({"error": str(e)}, 500)
 
 
 @app.get("/api/runs")

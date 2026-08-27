@@ -1,0 +1,159 @@
+"""Async-friendly, single-stage execution for the ColonyV production pipeline.
+
+Each pipeline stage (monitor, research, script, render, publish, analyst) can be
+executed independently given the run's shared state. `run_stage` runs one stage
+through the ADK pipeline tools and editorial gates and returns the list of next
+stages to schedule. This powers both the synchronous factory driver and the
+Pub/Sub-async worker, so a stage can be picked up by a separate Cloud Run
+service or job and still follow the exact same policy gates.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from colonyv_agent import pipeline_runtime as runtime
+from colonyv_agent.tools.editorial import (
+    evaluate_publication_gate,
+    evaluate_render_result,
+    evaluate_research_gate,
+    evaluate_story_candidate,
+    evaluate_upload_result,
+)
+from colonyv_agent.tools.pipeline import (
+    analyze_performance,
+    discover_stories,
+    publish_to_youtube,
+    request_render,
+    research_story,
+    write_script,
+)
+
+STAGES = ["monitor", "research", "script", "render", "publish", "analyst"]
+
+
+class StageState:
+    """Duck-typed ToolContext carrying the run's shared dict state."""
+
+    def __init__(self, state: dict[str, Any] | None = None) -> None:
+        self.state: dict[str, Any] = state or {}
+
+
+def run_stage(
+    state: dict[str, Any],
+    stage: str,
+    story_index: int = 0,
+    attempt: int = 1,
+) -> dict[str, Any]:
+    """Execute one pipeline stage and report what to schedule next.
+
+    Returns {"stage", "decision", "next": [(stage, story_index, attempt)], ...}
+    """
+    ctx = StageState(state)
+
+    if stage == "monitor":
+        discover = discover_stories(ctx)
+        if not discover.get("success"):
+            return {"stage": stage, "decision": "failed", "error": discover.get("error"),
+                    "next": [], "state": state}
+        candidates = [
+            s for s in state.get("stories", []) if s.get("story_id") and s.get("title")
+        ]
+        if not candidates:
+            return {"stage": stage, "decision": "failed",
+                    "error": "No usable candidates were discovered", "next": [], "state": state}
+        next_stages = [(s["index"], 1) for s in candidates[: int(state.get("stories_target", 1))]]
+        return {"stage": stage, "decision": "continue",
+                "story": candidates[0], "next": [("research", s, 1) for s, _ in next_stages],
+                "state": state}
+
+    if stage == "research":
+        story = state.get("current_story") or state.get("stories", [{}])[story_index]
+        gate = evaluate_story_candidate(
+            title=story.get("title", ""),
+            relevance_score=story.get("relevance_score", 0.0),
+            novelty_score=story.get("novelty_score", 0.0),
+            urgency_score=story.get("urgency_score", 0.0),
+        )
+        if gate["decision"] != "continue":
+            return {"stage": stage, "decision": "rejected",
+                    "story_id": story.get("story_id"), "next": [], "state": state}
+        research = research_story(story_index, ctx)
+        if not research.get("success"):
+            return {"stage": stage, "decision": "failed",
+                    "story_id": story.get("story_id"), "error": research.get("error"),
+                    "next": [], "state": state}
+        rg = evaluate_research_gate(
+            confidence=research.get("confidence", "low") or "low",
+            verified_claims=research.get("verified_claims", 0),
+            total_claims=research.get("total_claims", 0),
+            contradictions=research.get("contradictions", 0),
+            research_attempt=attempt,
+            sources_fetched=int(research.get("sources_fetched", 0)),
+        )
+        if rg["decision"] == "retry":
+            return {"stage": stage, "decision": "retry", "next": [("research", story_index, attempt + 1)],
+                    "state": state}
+        if rg["decision"] == "stop":
+            return {"stage": stage, "decision": "stop",
+                    "reason": rg["reason"], "next": [], "state": state}
+        return {"stage": stage, "decision": "continue", "next": [("script", story_index, 1)],
+                "state": state}
+
+    if stage == "script":
+        script = write_script(ctx)
+        if not script.get("success"):
+            return {"stage": stage, "decision": "failed", "error": script.get("error"),
+                    "next": [], "state": state}
+        return {"stage": stage, "decision": "continue", "next": [("render", story_index, 1)],
+                "state": state}
+
+    if stage == "render":
+        render = request_render(ctx)
+        rg = evaluate_render_result(
+            success=bool(render.get("success")),
+            output_exists=bool(render.get("output_exists")),
+            output_size_bytes=int(render.get("output_size_bytes", 0)),
+            render_attempt=attempt,
+        )
+        if rg["decision"] == "retry":
+            return {"stage": stage, "decision": "retry", "next": [("render", story_index, attempt + 1)],
+                    "state": state}
+        if rg["decision"] == "stop" or not render.get("output_exists"):
+            return {"stage": stage, "decision": "failed",
+                    "reason": rg["reason"], "next": [], "state": state}
+        return {"stage": stage, "decision": "continue", "next": [("publish", story_index, 1)],
+                "state": state}
+
+    if stage == "publish":
+        research = state.get("research", {})
+        pg = evaluate_publication_gate(
+            confidence=research.get("confidence", "low") or "low",
+            unresolved_contradictions=int(research.get("contradictions", 0)),
+            unsupported_claims=max(
+                0, int(research.get("total_claims", 0)) - int(research.get("verified_claims", 0))
+            ),
+        )
+        if pg["decision"] != "publish":
+            runtime.log(f"[publish] publication blocked: {pg['reason']}")
+            return {"stage": stage, "decision": "blocked",
+                    "reason": pg["reason"], "next": [("analyst", story_index, 1)], "state": state}
+        upload = publish_to_youtube(ctx)
+        if upload.get("skipped"):
+            return {"stage": stage, "decision": "skipped",
+                    "reason": upload.get("reason"), "next": [("analyst", story_index, 1)], "state": state}
+        ug = evaluate_upload_result(upload.get("success", False), upload.get("video_id", ""))
+        if ug["decision"] == "complete":
+            return {"stage": stage, "decision": "complete",
+                    "video_id": upload.get("video_id"), "next": [("analyst", story_index, 1)], "state": state}
+        return {"stage": stage, "decision": "failed",
+                "reason": ug["reason"], "next": [], "state": state}
+
+    if stage == "analyst":
+        analysis = analyze_performance(ctx)
+        return {"stage": stage, "decision": "complete" if analysis.get("success") else "failed",
+                "analyst": analysis.get("analyst"), "error": analysis.get("error"),
+                "next": [], "state": state}
+
+    return {"stage": stage, "decision": "failed", "error": f"Unknown stage {stage}",
+            "next": [], "state": state}
