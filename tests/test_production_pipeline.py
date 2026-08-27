@@ -101,7 +101,7 @@ def test_stage_research_continue_schedules_script(monkeypatch):
     assert ("script", 0, 1) in result["next"]
 
 
-def test_stage_publish_blocked_schedules_analyst(monkeypatch):
+def test_stage_publish_blocks_only_transiently_then_reverifies(monkeypatch):
     from colonyv_agent import stages
     state: dict = {"research": {"confidence": "low", "contradictions": 0,
                                 "total_claims": 1, "verified_claims": 0}}
@@ -111,8 +111,27 @@ def test_stage_publish_blocked_schedules_analyst(monkeypatch):
 
     monkeypatch.setattr(stages, "publish_to_youtube", fake_upload)
     result = stages.run_stage(state, "publish", 0, 1)
-    assert result["decision"] in {"blocked", "skipped"}
-    assert ("analyst", 0, 1) in result["next"]
+    assert result["decision"] == "reverify"
+    assert ("research", 0, 2) in result["next"]
+
+
+def test_stage_publish_verification_exhausted_escalates_candidate(monkeypatch):
+    from colonyv_agent import stages
+    state: dict = {
+        "research": {"confidence": "low", "contradictions": 0,
+                     "total_claims": 1, "verified_claims": 0},
+        "stories": [{"story_id": "1", "title": "a", "index": 0},
+                    {"story_id": "2", "title": "b", "index": 1}],
+        "stories_target": 2,
+    }
+
+    def fake_upload(tool_context):
+        return {"success": False, "skipped": True, "reason": "skip_publish"}
+
+    monkeypatch.setattr(stages, "publish_to_youtube", fake_upload)
+    result = stages.run_stage(state, "publish", 0, 3)
+    assert result["decision"] == "escalate"
+    assert ("research", 1, 1) in result["next"]
 
 
 def test_stage_analyst_terminal(monkeypatch):
@@ -143,7 +162,7 @@ def test_stage_publish_handles_full_report_lists(monkeypatch):
 
     monkeypatch.setattr(stages, "publish_to_youtube", fake_upload)
     result = stages.run_stage(state, "publish", 0, 1)
-    assert result["decision"] in {"blocked", "skipped"}
+    assert result["decision"] == "skipped"
     assert ("analyst", 0, 1) in result["next"]
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from colonyv_agent import pipeline_runtime as runtime
+from colonyv_agent.stages import MAX_VERIFY_ATTEMPTS
 from colonyv_agent.tools.editorial import (
     evaluate_publication_gate,
     evaluate_render_result,
@@ -136,15 +137,42 @@ def run_factory(stories: int) -> dict[str, Any]:
                 0, int(research.get("total_claims", 0)) - int(research.get("verified_claims", 0))
             ),
         )
+        verify_attempt = 1
+        while publication["decision"] != "publish" and verify_attempt < MAX_VERIFY_ATTEMPTS:
+            _policy(publication)
+            verify_attempt += 1
+            runtime.log(
+                f"[publish] gate pending ({publication['reason']}); "
+                f"re-verifying story (attempt {verify_attempt}/{MAX_VERIFY_ATTEMPTS})"
+            )
+            research = research_story(story["index"], ctx)
+            if not research.get("success"):
+                break
+            publication = evaluate_publication_gate(
+                confidence=(research.get("confidence") or "low"),
+                unresolved_contradictions=int(research.get("contradictions", 0)),
+                unsupported_claims=max(
+                    0, int(research.get("total_claims", 0)) - int(research.get("verified_claims", 0))
+                ),
+            )
         _policy(publication)
-        if publication["decision"] == "publish":
+        if publication["decision"] != "publish":
+            runtime.activity(
+                "publish", "escalate",
+                "Verification exhausted for candidates; publishing best available",
+            )
+        for upload_attempt in range(1, 4):
             upload = publish_to_youtube(ctx)
             if upload.get("skipped"):
                 runtime.log(f"[publish] skipping upload ({upload.get('reason')})")
-            else:
-                _policy(evaluate_upload_result(upload.get("success", False), upload.get("video_id", "")))
-        else:
-            runtime.activity("publish", "blocked", f"Publication blocked: {publication['reason']}")
+                break
+            up = evaluate_upload_result(
+                upload.get("success", False), upload.get("video_id", ""), upload_attempt=upload_attempt
+            )
+            _policy(up)
+            if up["decision"] == "complete":
+                break
+            runtime.log(f"[publish] upload retry {upload_attempt}/3 ({up['reason']})")
 
         produced.append({
             "story_id": story["story_id"],

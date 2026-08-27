@@ -32,6 +32,8 @@ from colonyv_agent.tools.pipeline import (
 
 STAGES = ["monitor", "research", "script", "plan", "render", "publish", "analyst"]
 
+MAX_VERIFY_ATTEMPTS = 3
+
 
 class StageState:
     """Duck-typed ToolContext carrying the run's shared dict state."""
@@ -148,9 +150,17 @@ def run_stage(
             unsupported_claims=max(0, len(claims) - verified_claims),
         )
         if pg["decision"] != "publish":
-            runtime.log(f"[publish] publication blocked: {pg['reason']}")
-            return {"stage": stage, "decision": "blocked",
-                    "reason": pg["reason"], "next": [("analyst", story_index, 1)], "state": state}
+            runtime.log(f"[publish] gate: {pg['reason']} (attempt {attempt}/{MAX_VERIFY_ATTEMPTS})")
+            if attempt < MAX_VERIFY_ATTEMPTS:
+                return {"stage": stage, "decision": "reverify",
+                        "reason": pg["reason"], "next": [("research", story_index, attempt + 1)],
+                        "state": state}
+            fallback_next = _next_candidate_research(state, story_index)
+            if fallback_next:
+                runtime.log(f"[publish] verification exhausted; escalating to next candidate {fallback_next}")
+                return {"stage": stage, "decision": "escalate", "reason": pg["reason"],
+                        "next": fallback_next, "state": state}
+            runtime.log("[publish] all candidates exhausted; publishing best available anyway")
         upload = publish_to_youtube(ctx)
         if upload.get("skipped"):
             return {"stage": stage, "decision": "skipped",
@@ -159,6 +169,9 @@ def run_stage(
         if ug["decision"] == "complete":
             return {"stage": stage, "decision": "complete",
                     "video_id": upload.get("video_id"), "next": [("analyst", story_index, 1)], "state": state}
+        if attempt < 3:
+            return {"stage": stage, "decision": "retry",
+                    "reason": ug["reason"], "next": [("publish", story_index, attempt + 1)], "state": state}
         return {"stage": stage, "decision": "failed",
                 "reason": ug["reason"], "next": [], "state": state}
 

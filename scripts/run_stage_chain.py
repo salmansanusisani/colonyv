@@ -57,7 +57,7 @@ def main() -> int:
     for stage, idx, attempt, decision in decisions:
         print(f"  {stage:8s} story={idx} attempt={attempt} -> {decision}")
     terminal = decisions[-1] if decisions else None
-    ok = terminal and terminal[1] in {"complete", "failed", "blocked"} and any(
+    ok = terminal and terminal[3] in {"complete", "failed"} and any(
         d[0] == "render" and d[3] == "continue" for d in decisions
     )
     print("RESULT:", "OK" if ok else "CHECK")
