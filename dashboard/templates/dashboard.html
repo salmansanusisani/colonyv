@@ -818,20 +818,8 @@
                 </div>
 
                 <div style="display:flex; gap:10px;">
-                    <button id="startBtn" class="btn-apple btn-apple-primary" onclick="startPipeline()" title="Sequential pipeline">
-                        <span data-icon="play"></span> Run Pipeline
-                    </button>
-                    <button id="agentRunBtn" class="btn-apple" onclick="startAgentRun()" style="border:1px solid var(--apple-blue); color:var(--apple-blue);" title="Gemini + Google ADK Editorial Director operates every stage">
+                    <button id="agentRunBtn" class="btn-apple btn-apple-primary" onclick="startAgentRun()" title="Gemini + Google ADK Editorial Director operates every stage">
                         <span data-icon="bot"></span> Autonomous Run
-                    </button>
-                    <button id="pauseBtn" class="btn-apple btn-apple-secondary" onclick="pausePipeline()" disabled>
-                        <span data-icon="pause"></span> Pause
-                    </button>
-                    <button id="resumeBtn" class="btn-apple btn-apple-secondary" onclick="resumePipeline()" disabled>
-                        <span data-icon="play"></span> Resume
-                    </button>
-                    <button id="stopBtn" class="btn-apple btn-apple-danger" onclick="stopPipeline()" disabled>
-                        <span data-icon="square"></span> Stop Completely
                     </button>
                 </div>
             </div>
@@ -1000,22 +988,27 @@
                     </div>
 
                     <div class="apple-card settings-panel active" id="model-setup" data-settings-panel="model">
-                        <div class="card-title" style="margin-bottom:16px;">AI Model & API</div>
-                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Choose the model used by Monitor, Research, and Scriptwriter. API keys are stored locally and masked after saving.</p>
-                        <div class="provider-grid">
-                            <button class="provider-card active" data-provider="gemini" data-model="gemini/gemini-3.5-flash" onclick="selectModel('gemini','gemini/gemini-3.5-flash', this)"><span class="provider-mark gemini-mark">G</span><span><strong>Google Gemini</strong><small>Required hackathon model</small></span><span class="provider-check" data-check="gemini"></span></button>
-                        </div>
-                        <div class="settings-row" style="margin-bottom:14px; border-bottom:0; padding-bottom:0;">
-                            <div class="settings-label"><span>Search providers</span><small>Filter the provider catalog</small></div>
-                            <input id="providerSearch" class="apple-input" style="width:280px;" placeholder="Search providers" oninput="filterProviders(this.value)">
-                        </div>
+                        <div class="card-title" style="margin-bottom:16px;">AI Brain</div>
+                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Powered by Google Gemini on Vertex AI. No API keys required — application credentials are handled automatically.</p>
                         <div class="settings-group">
-                            <div class="settings-row"><div class="settings-label"><span>Active provider</span><small id="activeProviderStatus">Google Gemini</small></div><select id="modelProvider" class="apple-select" disabled><option value="gemini">Google Gemini</option></select></div>
-                            <div class="settings-row"><div class="settings-label"><span>Available models</span><small id="modelCatalogStatus">Choose a provider to load models</small></div><select id="modelCatalog" class="apple-select" style="min-width:320px;" onchange="modelCatalogChanged(this.value)"><option value="">Load provider models</option></select></div>
-                            <div class="settings-row"><div class="settings-label"><span>Custom model ID</span><small>Paste any LiteLLM model name if it is not listed</small></div><input id="modelId" class="apple-input" style="width:320px;" placeholder="anthropic/claude-sonnet-4-20250514"></div>
-                            <div class="settings-row"><div class="settings-label"><span>API key</span><small id="modelKeyStatus">Not configured</small></div><input id="modelApiKey" type="password" class="apple-input" style="width:320px;" placeholder="Leave blank to keep existing key"></div>
+                            <div class="settings-row">
+                                <div class="settings-label">
+                                    <span>Engine</span>
+                                    <small>The Editorial Director model provider</small>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <span class="provider-mark gemini-mark">G</span>
+                                    <strong>Gemini · Vertex AI</strong>
+                                </div>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-label">
+                                    <span>Current model</span>
+                                    <small id="modelKeyStatus">Read from COLONYV_GEMINI_MODEL</small>
+                                </div>
+                                <input id="modelId" class="apple-input" style="width:340px;" readonly placeholder="Loading...">
+                            </div>
                         </div>
-                        <button class="btn-apple btn-apple-primary btn-sm" onclick="saveSettings()">Save Pipeline & Model Settings</button>
                     </div>
 
                     <!-- 1. Target Niche & Channel Settings -->
@@ -1300,11 +1293,8 @@ CONTROLS
         });
         if (resp.ok) {
             const data = await resp.json();
-            document.getElementById('startBtn').disabled = true;
             document.getElementById('agentRunBtn').disabled = true;
-            document.getElementById('pauseBtn').disabled = true;
-            document.getElementById('resumeBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('agentRunBtn').textContent = 'Editorial Director active...';
             document.getElementById('progressSection').style.display = 'block';
             document.getElementById('stepText').textContent = 'Editorial Director orchestrating production...';
             document.getElementById('liveLog').innerHTML = '';
@@ -1316,49 +1306,6 @@ CONTROLS
             const data = await resp.json();
             toast(data.error || 'Failed to start autonomous run', 'error');
         }
-    }
-
-    async function startPipeline() {
-        const resp = await fetch('/api/pipeline/start', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        });
-        if (resp.ok) {
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('agentRunBtn').disabled = true;
-            document.getElementById('pauseBtn').disabled = false;
-            document.getElementById('resumeBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            document.getElementById('progressSection').style.display = 'block';
-            document.getElementById('liveLog').innerHTML = '';
-            runStartTime = Date.now();
-            startTimer();
-            toast('Pipeline started', 'info');
-            pollStatus();
-        } else {
-            const data = await resp.json();
-            toast(data.error || 'Failed to start', 'error');
-        }
-    }
-
-    async function stopPipeline() {
-        document.getElementById('stopBtn').disabled = true;
-        await fetch('/api/pipeline/stop', { method: 'POST' });
-        toast('Pipeline halting...', 'info');
-        pollStatus();
-    }
-
-    async function pausePipeline() {
-        await fetch('/api/pipeline/pause', {method:'POST'});
-        toast('Pipeline paused', 'info');
-        pollStatus();
-    }
-
-    async function resumePipeline() {
-        await fetch('/api/pipeline/resume', {method:'POST'});
-        toast('Pipeline resumed', 'info');
-        pollStatus();
     }
 
     function startTimer() {
@@ -1391,11 +1338,7 @@ CONTROLS
         if (s.running) {
             dot.className = 'status-dot active';
             text.textContent = 'Running (' + (s.current_step || '...') + ')';
-            document.getElementById('startBtn').disabled = true;
             document.getElementById('agentRunBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            document.getElementById('pauseBtn').disabled = !!s.paused;
-            document.getElementById('resumeBtn').disabled = !s.paused;
             document.getElementById('progressFill').style.width = s.progress + '%';
             document.getElementById('stepText').textContent = s.current_step + ' (' + s.stories_done + '/' + s.story_count + ' stories)';
 
@@ -1416,11 +1359,8 @@ CONTROLS
             } else {
                 text.textContent = 'System Idle';
             }
-            document.getElementById('startBtn').disabled = false;
             document.getElementById('agentRunBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            document.getElementById('pauseBtn').disabled = true;
-            document.getElementById('resumeBtn').disabled = true;
+            document.getElementById('agentRunBtn').textContent = 'Autonomous Run';
             stopTimer();
             if (s.current_step === 'complete') {
                 toast('Pipeline completed!', 'info');
@@ -1742,74 +1682,18 @@ CONTROLS
         document.getElementById('videosPerRun').value = p.videos_per_run || 1;
         document.getElementById('skipPublish').checked = p.skip_publish !== false;
         document.getElementById('maxDuration').value = p.max_duration_seconds || 60;
-        document.getElementById('modelProvider').value = 'gemini';
-        document.getElementById('modelId').value = m.model_id || '';
-        const configuredProviders = m.configured_providers || {};
-        const activeProvider = 'gemini';
-        document.getElementById('modelKeyStatus').textContent = configuredProviders[activeProvider] ? 'Key configured for this provider' : 'API key required for this provider';
+        document.getElementById('modelId').value = m.model_id || 'gemini/gemini-3.5-flash';
+        document.getElementById('modelKeyStatus').textContent = 'Since keys are not used, auth is Vertex ADC';
         document.getElementById('topicPrompt').value = c.topic_prompt || '';
         document.getElementById('brandVoice').value = c.brand_voice || 'engaging_news';
-        document.getElementById('activeProviderStatus').textContent = `${m.provider || 'groq'} · ${m.model_id || 'model not selected'}`;
-        document.querySelectorAll('.provider-card[data-provider]').forEach(card => {
-            card.classList.toggle('active', card.dataset.provider === activeProvider);
-        });
-        loadProviderModels(activeProvider, m.model_id || '');
-        document.getElementById('runConfigSummary').textContent = `${p.videos_per_run || 1} video${(p.videos_per_run || 1) === 1 ? '' : 's'} per run · ${p.skip_publish === false ? 'publishing enabled' : 'render only'}`;
+        document.getElementById('runConfigSummary').textContent = `${p.videos_per_run || 1} video${(p.videos_per_run || 1) === 1 ? '' : 's'} per run · ${p.skip_publish === false ? 'publishing enabled' : 'render only'} · ${m.model_id || 'gemini/gemini-3.5-flash'}`;
     }
 
     async function saveSettings() {
-        const apiKey = document.getElementById('modelApiKey').value.trim();
         const model = { provider: 'gemini', model_id: document.getElementById('modelId').value.trim() };
-        if (apiKey) model.api_key = apiKey;
         const body = { pipeline: { videos_per_run: parseInt(document.getElementById('videosPerRun').value), skip_publish: document.getElementById('skipPublish').checked, max_duration_seconds: parseInt(document.getElementById('maxDuration').value) }, model, content: { topic_prompt: document.getElementById('topicPrompt').value.trim(), brand_voice: document.getElementById('brandVoice').value } };
         const resp = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-        if (resp.ok) { document.getElementById('modelApiKey').value = ''; await loadSettings(); toast('Pipeline and model settings saved', 'success'); }
-    }
-
-    function selectModel(provider, modelId, card) {
-        document.getElementById('modelProvider').value = provider;
-        document.getElementById('modelId').value = modelId;
-        loadProviderModels(provider, modelId);
-        document.querySelectorAll('.provider-card[data-provider]').forEach(item => item.classList.remove('active'));
-        card.classList.add('active');
-        document.getElementById('activeProviderStatus').textContent = `${provider} · ${modelId}`;
-        const configured = (settingsData && settingsData.model && settingsData.model.configured_providers || {})[provider];
-        document.getElementById('modelKeyStatus').textContent = configured ? 'Key configured for this provider' : 'API key required for this provider';
-    }
-
-    function filterProviders(query) {
-        const needle = query.trim().toLowerCase();
-        document.querySelectorAll('.provider-card[data-provider]').forEach(card => {
-            card.style.display = !needle || card.textContent.toLowerCase().includes(needle) ? 'flex' : 'none';
-        });
-    }
-
-    function providerChanged(provider) {
-        const card = document.querySelector(`.provider-card[data-provider="${provider}"]`);
-        const fallback = card ? card.dataset.model : '';
-        if (card) selectModel(provider, fallback, card);
-    }
-
-    async function loadProviderModels(provider, selectedModel = '') {
-        const catalog = document.getElementById('modelCatalog');
-        const status = document.getElementById('modelCatalogStatus');
-        catalog.innerHTML = '<option value="">Loading models...</option>';
-        const resp = await fetch('/api/models?provider=' + encodeURIComponent(provider));
-        const data = await resp.json();
-        catalog.innerHTML = '<option value="">Select a model or use custom ID</option>' + (data.models || []).map(model => `<option value="${esc(model)}">${esc(model)}</option>`).join('');
-        const currentModel = selectedModel || document.getElementById('modelId').value;
-        const selectedExists = (data.models || []).includes(currentModel);
-        catalog.value = selectedExists ? currentModel : '';
-        if (!selectedExists && data.models && data.models.length && !selectedModel) {
-            document.getElementById('modelId').value = data.models[0];
-            catalog.value = data.models[0];
-        }
-        status.textContent = data.source === 'api' ? 'Loaded from provider API' : 'Built-in catalog; custom IDs supported';
-        if (data.warning) status.textContent += ' · API unavailable, using catalog';
-    }
-
-    function modelCatalogChanged(model) {
-        if (model) document.getElementById('modelId').value = model;
+        if (resp.ok) { await loadSettings(); toast('Pipeline and model settings saved', 'success'); }
     }
 
     async function testNotification() {

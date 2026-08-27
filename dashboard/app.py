@@ -100,14 +100,13 @@ def load_settings() -> dict:
             pass
     # Public publishing is the only dashboard mode; discard the old privacy setting.
     settings["pipeline"].pop("youtube_privacy", None)
-    # Migrate the original single-key shape without exposing or losing it.
-    legacy_key = settings["model"].pop("api_key", "")
-    if legacy_key:
-        settings["model"].setdefault("api_keys", {})["gemini"] = legacy_key
+    # Vertex AI authenticates via application credentials; no API keys stored.
+    settings["model"].pop("api_key", None)
     settings["model"].setdefault("api_keys", {})
+    settings["model"]["api_keys"] = {"gemini": settings["model"].get("api_keys", {}).get("gemini", "")}
+    settings["model"]["api_keys"] = {}
     settings["model"]["provider"] = "gemini"
     settings["model"]["model_id"] = os.environ.get("COLONY_MODEL_ID", "gemini/gemini-3.5-flash")
-    settings["model"]["api_keys"] = {"gemini": settings["model"].get("api_keys", {}).get("gemini", "")}
     return settings
 
 
@@ -348,21 +347,18 @@ async def api_agent_run(request: Request):
     reset_agent_activity()
     persist_pipeline_state()
 
-    provider_key = settings["model"].get("api_keys", {}).get("gemini", "")
-    if provider_key and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
-        os.environ["GOOGLE_API_KEY"] = provider_key
-        os.environ["GEMINI_API_KEY"] = provider_key
+    model_id = settings["model"].get("model_id", "gemini/gemini-3.5-flash")
     model_env = {
         **os.environ,
-        "COLONY_MODEL_ID": settings["model"].get("model_id", "gemini/gemini-3.5-flash"),
-        "COLONYV_GEMINI_MODEL": settings["model"].get("model_id", "gemini/gemini-3.5-flash").removeprefix("gemini/"),
+        "COLONY_MODEL_ID": model_id,
+        "COLONYV_GEMINI_MODEL": model_id.removeprefix("gemini/"),
         "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-        "COLONY_API_KEY": provider_key,
         "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
     }
-    if provider_key:
-        model_env["GEMINI_API_KEY"] = provider_key
-        model_env["GOOGLE_API_KEY"] = provider_key
+    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+    model_env.pop("GOOGLE_API_KEY", None)
+    model_env.pop("GEMINI_API_KEY", None)
 
     from colonyv_agent import pipeline_runtime
 
@@ -641,10 +637,7 @@ async def api_pipeline_stop():
 @app.get("/api/settings")
 async def api_settings_get():
     visible = json.loads(json.dumps(settings))
-    keys = visible["model"].pop("api_keys", {})
-    visible["model"]["configured_providers"] = {
-        provider: bool(key) for provider, key in keys.items()
-    }
+    visible["model"].pop("api_keys", {})
     return visible
 
 
@@ -657,12 +650,10 @@ async def api_settings_set(request: Request):
             settings[section].update(values)
     model_values = body.get("model")
     if isinstance(model_values, dict):
-        provider = model_values.get("provider", settings["model"].get("provider", "groq"))
-        settings["model"]["provider"] = provider
+        settings["model"]["provider"] = "gemini"
         if model_values.get("model_id"):
             settings["model"]["model_id"] = model_values["model_id"]
-        if model_values.get("api_key"):
-            settings["model"].setdefault("api_keys", {})[provider] = model_values["api_key"]
+    settings["model"].setdefault("api_keys", {}).pop("gemini", None)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     save_settings()
     return await api_settings_get()
@@ -1119,18 +1110,17 @@ async def run_pipeline(stories: int, skip_publish: bool):
 
         py_exec = get_python_exec()
         provider = "gemini"
-        provider_key = settings["model"].get("api_keys", {}).get("gemini", "")
         model_env = {
             **os.environ,
             "COLONY_MODEL_ID": settings["model"].get("model_id", "gemini/gemini-3.5-flash"),
             "COLONYV_GEMINI_MODEL": settings["model"].get("model_id", "gemini/gemini-3.5-flash").removeprefix("gemini/"),
             "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-            "COLONY_API_KEY": provider_key,
             "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
         }
-        if provider_key:
-            model_env["GEMINI_API_KEY"] = provider_key
-            model_env["GOOGLE_API_KEY"] = provider_key
+        if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+            model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+        model_env.pop("GOOGLE_API_KEY", None)
+        model_env.pop("GEMINI_API_KEY", None)
         result = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: run_cancellable_subprocess(
