@@ -7,7 +7,6 @@
 <p align="center"><strong>An autonomous editorial newsroom that discovers, verifies, produces, and publishes story-specific short-form video.</strong></p>
 
 <p align="center">
-  <a href="https://colonyv-c5vlham23a-uc.a.run.app">Live Cloud Run App</a> ·
   <a href="./README_GOOGLE_CLOUD.md">Google Cloud Setup</a>
 </p>
 

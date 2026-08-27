@@ -1260,7 +1260,13 @@ CONTROLS
     }
 
     function connectWS() {
-        ws = new WebSocket('ws://' + location.host + '/ws/logs');
+        const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+        try {
+            ws = new WebSocket(protocol + location.host + '/ws/logs');
+        } catch (error) {
+            console.warn('Live logs unavailable:', error);
+            return;
+        }
         ws.onmessage = function(e) {
             const logBox = document.getElementById('liveLog');
             const line = document.createElement('div');
@@ -1276,6 +1282,9 @@ CONTROLS
             const delay = Math.min(3000 * Math.pow(1.5, wsRetries), 30000);
             wsRetries++;
             setTimeout(connectWS, delay);
+        };
+        ws.onerror = function() {
+            if (ws) ws.close();
         };
     }
 
