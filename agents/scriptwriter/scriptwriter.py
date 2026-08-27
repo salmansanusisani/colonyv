@@ -57,9 +57,13 @@ def sanitize_script_output(script: dict) -> dict:
         }
         if "image_url" in b and isinstance(b["image_url"], str) and b["image_url"].startswith("http"):
             beat_obj["image_url"] = b["image_url"]
-        for field in ("asset_subject", "asset_type", "image_treatment", "asset_source_url", "asset_credit"):
+        for field in ("asset_subject", "asset_type", "asset_source_url", "asset_credit"):
             if isinstance(b.get(field), str) and b[field]:
                 beat_obj[field] = b[field]
+        if isinstance(b.get("image_treatment"), str) and b["image_treatment"] in {
+            "editorial_frame", "portrait_cutout", "product_focus", "logo_mark", "screenshot_focus", "location_wide",
+        }:
+            beat_obj["image_treatment"] = b["image_treatment"]
         if b.get("visual_style") in {"editorial", "image_led", "stat_led", "diagram", "timeline", "quiet"}:
             beat_obj["visual_style"] = b["visual_style"]
         sanitized_beats.append(beat_obj)
