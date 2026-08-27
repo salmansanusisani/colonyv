@@ -148,6 +148,33 @@
         .settings-back:hover { color: var(--apple-blue); }
         .settings-back svg { width: 17px; height: 17px; }
 
+        .agent-board { position:relative; padding:28px 22px 24px; overflow:hidden; }
+        .agent-board::before { content:""; position:absolute; left:12%; right:12%; top:93px; height:2px; background:linear-gradient(90deg, transparent, rgba(0,113,227,.22), transparent); }
+        .agent-board-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:30px; position:relative; z-index:1; }
+        .agent-board-title { font-size:18px; font-weight:800; letter-spacing:-.02em; }
+        .agent-board-subtitle { margin-top:5px; color:var(--text-secondary); font-size:12px; }
+        .agent-live { display:inline-flex; align-items:center; gap:7px; color:var(--apple-green); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+        .agent-live::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--apple-green); box-shadow:0 0 0 5px rgba(52,199,89,.12); animation:pulseDot 1.5s infinite; }
+        .agent-flow { display:grid; grid-template-columns:repeat(6, 1fr); gap:10px; position:relative; z-index:1; }
+        .agent-node { min-width:0; padding:15px 12px; border:1px solid var(--border-light); border-radius:15px; background:rgba(255,255,255,.88); transition:all .35s ease; }
+        .agent-node.active { border-color:var(--apple-blue); box-shadow:0 0 0 3px rgba(0,113,227,.1), 0 10px 24px rgba(0,113,227,.12); transform:translateY(-4px); }
+        .agent-node.complete { border-color:rgba(52,199,89,.35); background:rgba(52,199,89,.05); }
+        .agent-node.failed { border-color:rgba(255,59,48,.35); background:rgba(255,59,48,.04); }
+        .agent-node-icon { width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:10px; background:#f1f5f9; color:var(--text-secondary); margin-bottom:12px; }
+        .agent-node.active .agent-node-icon { color:#fff; background:var(--apple-blue); }
+        .agent-node.complete .agent-node-icon { color:#fff; background:var(--apple-green); }
+        .agent-node-icon svg { width:16px; height:16px; }
+        .agent-node-name { display:block; font-size:12px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .agent-node-detail { display:block; margin-top:6px; min-height:30px; color:var(--text-secondary); font-size:10px; line-height:1.45; }
+        .agent-node-status { display:block; margin-top:10px; color:var(--text-tertiary); font-size:10px; text-transform:uppercase; letter-spacing:.07em; font-weight:700; }
+        .agent-node.active .agent-node-status { color:var(--apple-blue); }
+        .agent-node.complete .agent-node-status { color:var(--apple-green); }
+        .agent-node.failed .agent-node-status { color:var(--apple-red); }
+        .terminal-toggle { display:inline-flex; align-items:center; gap:8px; margin-top:16px; border:0; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:12px; font-weight:700; }
+        .terminal-toggle:hover { color:var(--apple-blue); }
+        .terminal-toggle svg { width:15px; }
+        @media (max-width: 900px) { .agent-flow { grid-template-columns:repeat(2, 1fr); } .agent-board::before { display:none; } }
+
         .brand-subtitle {
             font-size: 12px;
             color: var(--text-secondary);
@@ -824,6 +851,15 @@
                 </div>
             </div>
 
+            <div class="apple-card agent-board" style="margin-bottom:24px;">
+                <div class="agent-board-header">
+                    <div><div class="agent-board-title">Agent Workspace</div><div class="agent-board-subtitle" id="agentBoardMessage">The editorial team is standing by.</div></div>
+                    <div class="agent-live">Live system</div>
+                </div>
+                <div class="agent-flow" id="agentFlow"></div>
+                <button class="terminal-toggle" onclick="toggleTerminalVisibility()"><i data-lucide="terminal-square"></i><span id="terminalToggleText">Show terminal output</span></button>
+            </div>
+
             <!-- At-a-Glance Stat Cards -->
             <div class="grid-row grid-4" style="margin-bottom: 24px;">
                 <div class="apple-card">
@@ -860,7 +896,7 @@
             </div>
 
             <!-- Execution Logs Console Drawer -->
-            <div class="terminal-wrapper" style="margin-bottom: 24px;">
+            <div class="terminal-wrapper" id="terminalPanel" style="margin-bottom: 24px; display:none;">
                 <div class="terminal-header">
                     <div style="display:flex; align-items:center; gap:12px;">
                         <div class="terminal-dots">
@@ -1152,6 +1188,26 @@ CONTROLS
         body.classList.toggle('expanded');
     }
 
+    const agentIcons = {monitor:'radar', research:'search-check', script:'pen-line', render:'clapperboard', publish:'send', analyst:'brain-circuit'};
+    function renderAgentFlow(activity, activeAgent, message) {
+        const flow = document.getElementById('agentFlow');
+        const items = Object.values(activity || {});
+        flow.innerHTML = items.map(agent => {
+            const icon = agentIcons[agent.key] || 'bot';
+            const status = agent.status || 'pending';
+            return `<div class="agent-node ${esc(status)}"><div class="agent-node-icon"><i data-lucide="${icon}"></i></div><span class="agent-node-name">${esc(agent.name)}</span><span class="agent-node-detail">${esc(agent.detail || agent.description || '')}</span><span class="agent-node-status">${esc(status)}</span></div>`;
+        }).join('');
+        document.getElementById('agentBoardMessage').textContent = message || (activeAgent ? `Working with ${activeAgent}` : 'The editorial team is standing by.');
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function toggleTerminalVisibility() {
+        const panel = document.getElementById('terminalPanel');
+        const visible = panel.style.display !== 'none';
+        panel.style.display = visible ? 'none' : 'block';
+        document.getElementById('terminalToggleText').textContent = visible ? 'Show terminal output' : 'Hide terminal output';
+    }
+
     // Toast Shelf
     function toast(msg, type = 'info') {
         const shelf = document.getElementById('toastShelf');
@@ -1265,8 +1321,8 @@ CONTROLS
 
     // Poll Status
     async function pollStatus() {
-        const resp = await fetch('/api/status');
-        const s = await resp.json();
+        const s = await fetchJson('/api/status', {}, 5000);
+        renderAgentFlow(s.agent_activity, s.active_agent, s.agent_message);
         const dot = document.getElementById('statusDot');
         const text = document.getElementById('statusText');
         const uptime = Math.floor(Number(s.uptime || 0));

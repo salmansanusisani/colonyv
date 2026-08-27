@@ -155,7 +155,55 @@ pipeline_state = {
     "stories_done": 0,
     "start_time": None,
     "current_process": None,
+    "active_agent": None,
+    "agent_message": "Waiting for a run",
+    "agent_activity": {},
 }
+
+AGENT_DEFINITIONS = [
+    ("monitor", "Discovery Agent", "Find and rank the most valuable stories"),
+    ("research", "Research Agent", "Gather evidence and test claims"),
+    ("script", "Scriptwriter Agent", "Shape evidence into a concise story"),
+    ("render", "Visual Producer", "Build narration, scenes, and motion"),
+    ("publish", "Publisher Agent", "Deliver the finished video to YouTube"),
+    ("analyst", "Analyst Agent", "Learn signals from the completed run"),
+]
+
+
+def reset_agent_activity() -> None:
+    pipeline_state["active_agent"] = None
+    pipeline_state["agent_message"] = "Waiting for a run"
+    pipeline_state["agent_activity"] = {
+        key: {
+            "key": key,
+            "name": name,
+            "description": description,
+            "status": "pending",
+            "detail": "Waiting",
+            "started_at": None,
+            "finished_at": None,
+        }
+        for key, name, description in AGENT_DEFINITIONS
+    }
+
+
+def set_agent_activity(key: str, status: str, detail: str) -> None:
+    if key not in pipeline_state["agent_activity"]:
+        return
+    now = datetime.now().isoformat()
+    activity = pipeline_state["agent_activity"][key]
+    activity.update({"status": status, "detail": detail})
+    if status == "active" and not activity.get("started_at"):
+        activity["started_at"] = now
+    if status in {"complete", "failed", "skipped"}:
+        activity["finished_at"] = now
+    if status == "active":
+        pipeline_state["active_agent"] = key
+        pipeline_state["agent_message"] = detail
+    persist_pipeline_state()
+
+
+reset_agent_activity()
 
 log_subscribers: list[WebSocket] = []
 app_loop: asyncio.AbstractEventLoop | None = None
@@ -239,6 +287,9 @@ async def api_status():
         ),
         "uptime": time.time() - APP_STARTED_AT,
         "next_run": scheduler_config.get("next_run") if "scheduler_config" in globals() else None,
+        "active_agent": pipeline_state["active_agent"],
+        "agent_message": pipeline_state["agent_message"],
+        "agent_activity": pipeline_state["agent_activity"],
     }
 
 
@@ -341,6 +392,7 @@ async def api_pipeline_start(request: Request):
         "stories_done": 0,
         "start_time": time.time(),
     })
+    reset_agent_activity()
     persist_pipeline_state()
 
     asyncio.create_task(run_pipeline(stories, skip_publish))
@@ -871,6 +923,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
         # Step 1: Monitor
         pipeline_state["current_step"] = "monitor"
         pipeline_state["progress"] = 10
+        set_agent_activity("monitor", "active", "Scanning RSS feeds and ranking candidates")
         log("Step 1/5: Scanning RSS feeds...")
 
         py_exec = get_python_exec()
@@ -903,6 +956,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
 
         stories_list = parse_json_from_output(result.stdout, "array")
         if not stories_list:
+            set_agent_activity("monitor", "failed", "No valid stories were returned")
             err = (result.stderr or result.stdout or "")[-400:]
             if err:
                 log(f"Monitor output: {err}")
@@ -910,6 +964,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
             return
 
         stories_list = stories_list[:stories]
+        set_agent_activity("monitor", "complete", f"Selected {len(stories_list)} stories for production")
         log(f"Found {len(stories_list)} stories")
         pipeline_state["progress"] = 20
 
@@ -929,6 +984,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
             # Step 2: Research
             pipeline_state["current_step"] = f"research ({i+1}/{len(stories_list)})"
             pipeline_state["progress"] = 30 + (i * 15)
+            set_agent_activity("research", "active", f"Collecting evidence for story {i + 1}/{len(stories_list)}")
             log("  Researching...")
 
             py_exec = get_python_exec()
@@ -949,6 +1005,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
 
             research = parse_json_from_output(result.stdout, "object")
             if not research:
+                set_agent_activity("research", "failed", "Research output could not be parsed")
                 log(f"  Research failed (returncode={result.returncode}), skipping")
                 log(f"  Last output: {result.stdout[-200:] if result.stdout else 'empty'}")
                 continue
@@ -971,10 +1028,12 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     )
                     research = parse_json_from_output(result2.stdout, "object")
                     if not research or "error" in research:
+                        set_agent_activity("research", "failed", "Research retry failed")
                         log(f"  Research failed after retry, skipping")
                         continue
                 else:
                     log(f"  Research error: {err_msg[:100]}, skipping")
+                    set_agent_activity("research", "failed", err_msg[:120] or "Research returned an error")
                     continue
 
             research["story_id"] = story_id
@@ -982,10 +1041,12 @@ async def run_pipeline(stories: int, skip_publish: bool):
             with open(output_dir / f"{story_id}_research.json", "w") as f:
                 json.dump(research, f, indent=2)
             log(f"  Research: {len(research.get('claims', []))} claims")
+            set_agent_activity("research", "complete", f"Collected {len(research.get('claims', []))} claims")
 
             # Step 3: Script
             pipeline_state["current_step"] = f"script ({i+1}/{len(stories_list)})"
             pipeline_state["progress"] = 50 + (i * 10)
+            set_agent_activity("script", "active", f"Writing story {i + 1}/{len(stories_list)}")
             log("  Writing script...")
 
             with open(output_dir / f"{story_id}_research.json", "w") as f:
@@ -1009,6 +1070,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
 
             script = parse_json_from_output(result.stdout, "object")
             if not script:
+                set_agent_activity("script", "failed", "Script output could not be parsed")
                 log(f"  Script failed (returncode={result.returncode}), skipping")
                 log(f"  Last output: {result.stdout[-200:] if result.stdout else 'empty'}")
                 continue
@@ -1031,10 +1093,12 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     )
                     script = parse_json_from_output(result2.stdout, "object")
                     if not script or "error" in script:
+                        set_agent_activity("script", "failed", "Script retry failed")
                         log(f"  Script failed after retry, skipping")
                         continue
                 else:
                     log(f"  Script error: {err_msg[:100]}, skipping")
+                    set_agent_activity("script", "failed", err_msg[:120] or "Script returned an error")
                     continue
 
             script["story_id"] = story_id
@@ -1042,10 +1106,12 @@ async def run_pipeline(stories: int, skip_publish: bool):
             with open(output_dir / f"{story_id}_script.json", "w") as f:
                 json.dump(script, f, indent=2)
             log(f"  Script: {len(script.get('suggested_visual_beats', []))} beats, {script.get('estimated_duration', 0)}s")
+            set_agent_activity("script", "complete", f"Created {len(script.get('suggested_visual_beats', []))} visual beats")
 
             # Step 4: Producer
             pipeline_state["current_step"] = f"render ({i+1}/{len(stories_list)})"
             pipeline_state["progress"] = 70 + (i * 10)
+            set_agent_activity("render", "active", f"Rendering video for story {i + 1}/{len(stories_list)}")
             log("  Rendering video...")
 
             py_exec = get_python_exec()
@@ -1069,14 +1135,17 @@ async def run_pipeline(stories: int, skip_publish: bool):
             if video_path.exists():
                 size_mb = round(video_path.stat().st_size / 1024 / 1024, 1)
                 log(f"  Rendered: {video_path.name} ({size_mb} MB)")
+                set_agent_activity("render", "complete", f"Rendered {size_mb} MB MP4")
             else:
                 log(f"  Render failed (returncode={result.returncode})")
                 log(f"  Last output: {result.stdout[-300:] if result.stdout else 'empty'}")
+                set_agent_activity("render", "failed", f"Render failed with code {result.returncode}")
 
             # Step 5: Publisher
             if not skip_publish and video_path.exists():
                 pipeline_state["current_step"] = f"publish ({i+1}/{len(stories_list)})"
                 pipeline_state["progress"] = 90
+                set_agent_activity("publish", "active", f"Publishing story {i + 1}/{len(stories_list)} to YouTube")
                 log("  Publishing to YouTube...")
 
                 py_exec = get_python_exec()
@@ -1102,9 +1171,11 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     break
                 if result.returncode == 0:
                     log("  Published!")
+                    set_agent_activity("publish", "complete", "Published publicly to YouTube")
                 else:
                     log(f"  Publish failed (returncode={result.returncode})")
                     log(f"  Last output: {result.stdout[-200:] if result.stdout else 'empty'}")
+                    set_agent_activity("publish", "failed", "YouTube publishing failed")
 
             pipeline_state["stories_done"] = i + 1
 
@@ -1143,6 +1214,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
 
             # Run analyst for learning loop
             try:
+                set_agent_activity("analyst", "active", "Analyzing completed run and learning signals")
                 py_exec = get_python_exec()
                 analyst_result = await asyncio.get_event_loop().run_in_executor(
                     None,
@@ -1158,8 +1230,10 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     analyst_path = output_dir / "analyst_output.json"
                     if analyst_path.exists():
                         log("Analyst: learned signals saved")
+                        set_agent_activity("analyst", "complete", "Saved learned signals")
             except Exception as e:
                 log(f"Analyst skipped: {e}")
+                set_agent_activity("analyst", "failed", "Analyst could not complete")
 
     except Exception as e:
         log(f"Pipeline error: {e}")
