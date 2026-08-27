@@ -318,6 +318,36 @@ def sanitize_research_output(analysis: dict, story_id: str, extracted: list[dict
             if isinstance(asset, dict) and asset.get("url")
         ],
     }
+    output["editorial_assets"] = sanitize_editorial_assets(output["editorial_assets"])
+    return output
+
+
+ALLOWED_ASSET_TYPES = {
+    "article_image", "person", "logo", "product", "screenshot", "location",
+    "chart", "diagram", "map", "table", "data_viz", "video",
+}
+
+
+def sanitize_editorial_assets(assets: list[dict]) -> list[dict]:
+    """Drop or coerce editorial assets that do not satisfy the output schema.
+
+    The LLM occasionally invents asset types (e.g. 'illustration') or omits
+    required fields; a single stray asset must never reject the whole report.
+    """
+    cleaned = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        entry = {k: v for k, v in asset.items() if v not in (None, "")}
+        if not entry.get("url") or not entry.get("source_url"):
+            continue
+        asset_type = str(entry.get("asset_type", "article_image"))
+        if asset_type not in ALLOWED_ASSET_TYPES:
+            asset_type = "article_image"
+        entry["asset_type"] = asset_type
+        entry.setdefault("subject", "subject")
+        cleaned.append(entry)
+    return cleaned
 
 
 def main():
@@ -395,6 +425,7 @@ def main():
     extracted_assets = [asset for article in extracted for asset in article.get("assets", [])]
     output["editorial_assets"] = output.get("editorial_assets", []) + extracted_assets
     output["editorial_assets"] = list({asset["url"]: asset for asset in output["editorial_assets"]}.values())[:12]
+    output["editorial_assets"] = sanitize_editorial_assets(output["editorial_assets"])
 
     # Validate
     if validate_output(output, schema):
