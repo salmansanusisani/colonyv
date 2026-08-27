@@ -231,17 +231,18 @@ The production agent uses Google Gemini only. The dashboard model screen is now 
 
 ## Google ADK Production Path
 
-The All Things Agentic Hackathon production path uses Gemini, Google ADK, Cloud Run, and Firestore.
+The All Things Agentic Hackathon production path uses Gemini, Google ADK, Cloud Run, and Firestore, authenticated with Vertex AI Application Default Credentials (no API keys).
 
 ```bash
 pip install -r requirements.txt
-export GOOGLE_API_KEY="..."
-export COLONYV_GEMINI_MODEL="gemini-3.5-flash"
-python3 scripts/check_gemini.py
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export GOOGLE_CLOUD_LOCATION="global"
+python3 scripts/check_gemini.py --vertex
 adk web colonyv_agent
 ```
 
-The ADK root agent is `colonyv_agent.agent.root_agent`. It uses deterministic tools to reject low-value stories, retry weak research, retry failed renders, block unsafe publishing, and retry failed uploads. It operates autonomously without a human approval branch.
+The ADK Editorial Director exposes `root_agent` (interactive Q&A) and `production_agent` (autonomous production director). The production director's tool suite operates the real production agents — `discover_stories`, `research_story`, `write_script`, `request_render`, `publish_to_youtube`, `analyze_performance` — and the factory driver (`colonyv_agent/factory.py`) runs the full loop with editorial gates (story rejection, research retry/stop, render retry, publication blocking, upload retry). Start an autonomous run from the dashboard via `POST /api/agent/run`.
 
 See [README_GOOGLE_CLOUD.md](README_GOOGLE_CLOUD.md) for Vertex AI, Firestore, Docker, and Cloud Run setup.
 
