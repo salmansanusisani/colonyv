@@ -64,7 +64,7 @@ def collect_run_data(run_dir: Path) -> dict:
     return data
 
 
-def analyze_performance(run_data: dict, api_key: str, history: list | None = None) -> dict | None:
+def analyze_performance(run_data: dict, history: list | None = None) -> dict | None:
     """Use LLM to analyze pipeline performance and produce learned signals."""
     from colonyv_agent.gemini import generate_json
 
@@ -228,12 +228,7 @@ def main():
     parser = argparse.ArgumentParser(description="Analyst Agent")
     parser.add_argument("--run-dir", required=True, help="Path to pipeline run output directory")
     parser.add_argument("--history", help="Path to historical analysis JSON file")
-    parser.add_argument("--api-key", default=os.environ.get("GROQ_API_KEY", ""))
     args = parser.parse_args()
-
-    if not args.api_key:
-        print("Error: No API key. Set GROQ_API_KEY or pass --api-key.", file=sys.stderr)
-        sys.exit(1)
 
     schema = load_schema()
     run_dir = Path(args.run_dir)
@@ -253,7 +248,7 @@ def main():
         print(f"  Loaded {len(history)} historical analyses")
 
     print(f"[2/3] Analyzing performance...")
-    analysis = analyze_performance(run_data, args.api_key, history)
+    analysis = analyze_performance(run_data, history)
 
     if not analysis:
         print("  [error] LLM analysis failed.", file=sys.stderr)

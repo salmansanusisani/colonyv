@@ -45,8 +45,6 @@ DASHBOARD_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = PROJECT_ROOT / "config"
 SETTINGS_PATH = CONFIG_DIR / "settings.json"
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-
 DEFAULT_SETTINGS = {
     "pipeline": {
         "videos_per_run": 1,
