@@ -46,11 +46,22 @@ def evaluate_research_gate(
     contradictions: int,
     research_attempt: int = 1,
     maximum_research_attempts: int = 3,
+    sources_fetched: int = 0,
 ) -> dict[str, Any]:
-    """Decide whether research can proceed, needs another pass, or must stop."""
+    """Decide whether research can proceed, needs another pass, or must stop.
+
+    Retry only when evidence is genuinely unusable: contradictory sources or a
+    report assembled with no fetched sources at all. A single-source report with
+    uncertainty language is allowed to proceed; the publication gate still blocks
+    public publishing of unsupported or contradictory content.
+    """
     confidence = confidence.lower().strip()
     verified_ratio = verified_claims / max(1, total_claims)
-    if confidence == "low" or verified_ratio < 0.4 or contradictions >= 2:
+    unusable = (
+        contradictions >= 2
+        or (confidence == "low" and verified_ratio < 0.4 and sources_fetched == 0)
+    )
+    if unusable:
         if research_attempt < maximum_research_attempts:
             return {
                 "decision": "retry",
@@ -64,16 +75,13 @@ def evaluate_research_gate(
             "next_action": "notify_operator",
             "verified_ratio": round(verified_ratio, 3),
         }
-    if confidence == "medium" or contradictions:
-        return {
-            "decision": "continue",
-            "reason": "The story is usable; the autonomous policy will publish with uncertainty language.",
-            "next_action": "script",
-            "verified_ratio": round(verified_ratio, 3),
-        }
     return {
         "decision": "continue",
-        "reason": "Research is sufficiently verified for autonomous production.",
+        "reason": (
+            "The story is usable; the autonomous policy will publish with uncertainty language."
+            if (confidence == "medium" or contradictions or verified_ratio < 1.0)
+            else "Research is sufficiently verified for autonomous production."
+        ),
         "next_action": "script",
         "verified_ratio": round(verified_ratio, 3),
     }

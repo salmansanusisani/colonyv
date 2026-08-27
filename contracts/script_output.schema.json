@@ -73,7 +73,7 @@
             "description": "Optional image URL for beats that use KenBurnsImage."
           },
           "asset_subject": {"type": "string"},
-          "asset_type": {"type": "string", "enum": ["article_image", "person", "logo", "product", "screenshot", "location"]},
+          "asset_type": {"type": "string", "enum": ["article_image", "person", "logo", "product", "screenshot", "location", "chart", "diagram", "map", "table", "data_viz", "video"]},
           "image_treatment": {"type": "string", "enum": ["editorial_frame", "portrait_cutout", "product_focus", "logo_mark", "screenshot_focus", "location_wide"]},
           "asset_source_url": {"type": "string", "format": "uri"},
           "asset_credit": {"type": "string"}

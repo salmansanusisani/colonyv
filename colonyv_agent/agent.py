@@ -13,6 +13,14 @@ from .tools.editorial import (
     evaluate_story_candidate,
     evaluate_upload_result,
 )
+from .tools.pipeline import (
+    analyze_performance,
+    discover_stories,
+    publish_to_youtube,
+    request_render,
+    research_story,
+    write_script,
+)
 
 
 MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
@@ -36,6 +44,57 @@ Rules:
 8. Never claim that a stage completed unless a tool result proves it.
 """,
     tools=[
+        evaluate_story_candidate,
+        evaluate_research_gate,
+        evaluate_render_result,
+        evaluate_publication_gate,
+        evaluate_upload_result,
+    ],
+)
+
+production_agent = Agent(
+    name="colonyv_production_director",
+    model=MODEL_ID,
+    description="Autonomous production director that operates the full ColonyV pipeline.",
+    instruction="""
+You are ColonyV's production director. Your job is to OPERATE the full pipeline:
+discover stories, verify them, write scripts, render video, publish to YouTube,
+and analyze the result. Use the provided pipeline tools for execution and the
+decision tools for every gate. Never skip a tool call by assuming its result.
+
+Workflow (execute every step in order):
+1. discover_stories() - start the run and get the ranked candidate list.
+   For the highest-scoring story worth reporting, call evaluate_story_candidate
+   with that story's scores. If the decision is 'stop', pick the next story or
+   end with a clear summary.
+2. research_story(story_index) - for the story that passed the gate.
+   Then call evaluate_research_gate with its confidence/claims/contradictions.
+3. write_script() - only when research gate says 'continue'.
+4. request_render() - render the finished script.
+   Then call evaluate_render_result with success/output_exists/output_size_bytes.
+5. publish_to_youtube() - only when the render passed validation AND
+   evaluate_publication_gate returns 'publish'. The publication gate is
+   required; check unsupported claims, confidence, and contradictions first.
+6. analyze_performance() - close the run with the analyst.
+7. Return a concise final report: what was produced, the story title, the
+   https://youtube.com/watch?v=ID, and any caveats.
+
+Rules:
+- Always call the tool needed for the next stage; a tool result is the ONLY
+  proof a stage completed. Never claim a render or upload succeeded unless the
+  corresponding tool returned success.
+- Respect every gate decision. 'stop' or 'block' means stop work on that story.
+- For a render 'retry', call request_render() once more. For an upload 'retry',
+  call publish_to_youtube() once more. Do not exceed what the gate allows.
+- Keep working until analyze_performance() succeeds or a gate stops the story.
+""",
+    tools=[
+        discover_stories,
+        research_story,
+        write_script,
+        request_render,
+        publish_to_youtube,
+        analyze_performance,
         evaluate_story_candidate,
         evaluate_research_gate,
         evaluate_render_result,

@@ -118,9 +118,19 @@ APP_STARTED_AT = time.time()
 CLOUD_STATE = None
 
 
-def persist_pipeline_state() -> None:
+_last_persist_ts: float = 0.0
+
+
+def persist_pipeline_state(force: bool = False) -> None:
+    """Persist run state to Firestore, throttled so streaming logs do not
+    saturate the executor with a synchronous write per line."""
+    global _last_persist_ts
     if not CLOUD_STATE or not pipeline_state.get("run_id"):
         return
+    now = time.monotonic()
+    if not force and (now - _last_persist_ts) < 0.5:
+        return
+    _last_persist_ts = now
     try:
         CLOUD_STATE.save_run(
             pipeline_state["run_id"],
@@ -308,6 +318,97 @@ async def api_agent_invoke(request: Request):
             {"type": "adk_invocation", "message": message, **result},
         )
     return result
+
+
+@app.post("/api/agent/run")
+async def api_agent_run(request: Request):
+    """Start a full autonomous production run through the ADK Production Director."""
+    if pipeline_state["running"]:
+        return JSONResponse({"error": "Pipeline already running"}, 409)
+
+    body = await request.json()
+    stories = int(settings["pipeline"].get("videos_per_run", 1))
+    skip_publish = bool(settings["pipeline"].get("skip_publish", True))
+
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = OUTPUT_DIR / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    pipeline_state.update({
+        "running": True,
+        "paused": False,
+        "run_id": run_id,
+        "current_step": "agent-orchestrated",
+        "progress": 0,
+        "logs": [],
+        "story_count": stories,
+        "stories_done": 0,
+        "start_time": time.time(),
+    })
+    reset_agent_activity()
+    persist_pipeline_state()
+
+    provider_key = settings["model"].get("api_keys", {}).get("gemini", "")
+    if provider_key and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        os.environ["GOOGLE_API_KEY"] = provider_key
+        os.environ["GEMINI_API_KEY"] = provider_key
+    model_env = {
+        **os.environ,
+        "COLONY_MODEL_ID": settings["model"].get("model_id", "gemini/gemini-3.5-flash"),
+        "COLONYV_GEMINI_MODEL": settings["model"].get("model_id", "gemini/gemini-3.5-flash").removeprefix("gemini/"),
+        "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
+        "COLONY_API_KEY": provider_key,
+        "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
+    }
+    if provider_key:
+        model_env["GEMINI_API_KEY"] = provider_key
+        model_env["GOOGLE_API_KEY"] = provider_key
+
+    from colonyv_agent import pipeline_runtime
+
+    pipeline_runtime.configure(
+        logger=log,
+        activity=set_agent_activity,
+        env=model_env,
+        out_dir=OUTPUT_DIR,
+        run=run_id,
+        skip=skip_publish,
+    )
+
+    asyncio.create_task(run_production_director(stories))
+
+    return {"status": "started", "mode": "adk-production", "run_id": run_id}
+
+
+async def run_production_director(stories: int):
+    from colonyv_agent.factory import run_factory_async
+
+    try:
+        result = await run_factory_async(stories)
+        if result.get("error"):
+            log(f"ADK production failed: {result['error']}")
+        else:
+            produced = result.get("stories_produced", [])
+            log(f"ADK production completed with {len(produced)} finished story(ies).")
+        if CLOUD_STATE:
+            CLOUD_STATE.save_run(
+                pipeline_state["run_id"],
+                {
+                    **pipeline_state,
+                    "type": "adk_production_run",
+                    "factory_result": result,
+                },
+            )
+        pipeline_state["progress"] = 100
+        pipeline_state["current_step"] = "complete"
+    except Exception as e:
+        log(f"ADK production error: {e}")
+        if notification_config.get("on_error"):
+            await send_notification(f"ADK production error: {e}")
+    finally:
+        pipeline_state["running"] = False
+        pipeline_state["start_time"] = None
+        persist_pipeline_state(force=True)
 
 
 @app.get("/api/runs")
@@ -832,13 +933,18 @@ def run_cancellable_subprocess(
     label = step_label or " ".join(str(x).split("/")[-1] for x in cmd[:2])
     log(f"[{label}] starting: {' '.join(str(x) for x in cmd)}")
 
+    final_env = dict(env or os.environ)
+    pythonpath = final_env.get("PYTHONPATH", "")
+    paths = [p for p in pythonpath.split(":") if p] + [str(PROJECT_ROOT)]
+    final_env["PYTHONPATH"] = ":".join(dict.fromkeys(paths))
+
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         cwd=cwd,
-        env=env,
+        env=final_env,
         start_new_session=True,
     )
     pipeline_state["current_process"] = proc
