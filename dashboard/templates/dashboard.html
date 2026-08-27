@@ -1374,7 +1374,7 @@ CONTROLS
     async function loadAnalytics() {
         const resp = await fetch('/api/analytics');
         const data = await resp.json();
-        const statIds = ['statRuns', 'statStories', 'statRendered'];
+        const statIds = ['statRuns', 'statStories', 'statRendered', 'statStorageValue'];
         statIds.forEach(id => {
             const el = document.getElementById(id);
             el.classList.remove('loading');
@@ -1486,6 +1486,10 @@ CONTROLS
                 </tbody>
             </table>
         `;
+    }
+
+    async function loadDashboardData() {
+        await Promise.allSettled([loadRuns(), loadAnalytics(), loadYouTube(), loadCosts()]);
     }
 
     async function uploadYouTubeSecret() {
@@ -1699,10 +1703,7 @@ CONTROLS
     // Init
     connectWS();
     loadSettings();
-    loadRuns();
-    loadAnalytics();
-    loadYouTube();
-    loadCosts();
+    loadDashboardData();
     pollStatus();
     if (window.lucide) lucide.createIcons();
     </script>
