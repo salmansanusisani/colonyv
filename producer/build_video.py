@@ -170,12 +170,30 @@ def generate_placeholder_image(name: str, output_path: Path, width: int = 1080, 
         pass
 
 
+BROWSER_PROFILES = [
+    {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"},
+    {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15"},
+    {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0"}
+]
+_ua_cycle = None
+def _get_ua():
+    global _ua_cycle
+    if _ua_cycle is None:
+        from itertools import cycle
+        _ua_cycle = cycle(BROWSER_PROFILES)
+    return next(_ua_cycle)
+
 def download_editorial_asset(url: str, output_path: Path, asset_type: str = "article_image") -> bool:
     """Download a story asset only when the script explicitly selected it."""
     try:
         import requests
         from PIL import Image
-        response = requests.get(url, timeout=20, headers={"User-Agent": "ColonyV/1.0"})
+        headers = dict(_get_ua())
+        headers["Accept"] = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+        response = requests.get(url, timeout=20, headers=headers)
+        if response.status_code in (401, 403, 404):
+            print(f"  [warn] Download forbidden/not found: {response.status_code} ({url})")
+            return False
         response.raise_for_status()
         if len(response.content) < 10_000 or len(response.content) > 15_000_000:
             return False

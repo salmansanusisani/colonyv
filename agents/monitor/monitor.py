@@ -51,6 +51,44 @@ def load_seen(path):
             return set(json.load(f))
     return set()
 
+def get_latest_learned_signals() -> str:
+    """Read the latest analyst output to inject learned signals into the prompt."""
+    try:
+        output_dir = PROJECT_ROOT / "output"
+        if not output_dir.exists():
+            return ""
+        dirs = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith("202")]
+        if not dirs:
+            return ""
+        latest_dir = sorted(dirs)[-1]
+        analyst_file = latest_dir / "analyst_output.json"
+        if not analyst_file.exists():
+            if len(dirs) > 1:
+                latest_dir = sorted(dirs)[-2]
+                analyst_file = latest_dir / "analyst_output.json"
+        
+        if analyst_file.exists():
+            with open(analyst_file) as f:
+                data = json.load(f)
+                adjustments = data.get("recommendations", {}).get("monitor_adjustments", [])
+                topics = data.get("recommendations", {}).get("priority_topics", [])
+                avoid = data.get("recommendations", {}).get("topics_to_avoid", [])
+                
+                parts = []
+                if adjustments:
+                    parts.append("STRATEGIC ADJUSTMENTS: " + ", ".join(adjustments))
+                if topics:
+                    parts.append("PRIORITY TOPICS: " + ", ".join(topics))
+                if avoid:
+                    parts.append("TOPICS TO AVOID: " + ", ".join(avoid))
+                
+                if parts:
+                    return "\n\n=== LEARNED SIGNALS FROM PREVIOUS RUNS (CRITICAL TO FOLLOW) ===\n" + "\n".join(parts) + "\n=============================================================\n"
+    except Exception as e:
+        import sys
+        print(f"  [warn] Failed to load learned signals: {e}", file=sys.stderr)
+    return ""
+
 
 def save_seen(path, seen):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,10 +132,12 @@ def score_all(entries, api_key):
 
     entries_text = ""
     for i, e in enumerate(entries):
-        entries_text += f"\n{i + 1}. [{e['category'].upper()}] {e['title']}\n"
+        entries_text += f"{i+1}. {e['title']}\n"
         entries_text += f"   {e['summary'][:150]}\n"
 
-    prompt = f"""You are a news story scorer for a tech/AI/crypto video news channel.
+    learned_signals = get_latest_learned_signals()
+
+    prompt = f"""You are a news story scorer for a tech/AI/crypto video news channel.{learned_signals}
 
 Score these {len(entries)} stories. For EACH story provide:
 - relevance (0.0-1.0): fit for tech/AI/crypto audience

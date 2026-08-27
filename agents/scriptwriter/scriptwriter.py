@@ -30,6 +30,36 @@ def load_schema():
     with open(SCHEMA_PATH) as f:
         return json.load(f)
 
+def get_latest_learned_signals() -> str:
+    """Read the latest analyst output to inject learned signals into the prompt."""
+    try:
+        output_dir = PROJECT_ROOT / "output"
+        if not output_dir.exists():
+            return ""
+        dirs = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith("202")]
+        if not dirs:
+            return ""
+        latest_dir = sorted(dirs)[-1]
+        analyst_file = latest_dir / "analyst_output.json"
+        if not analyst_file.exists():
+            if len(dirs) > 1:
+                latest_dir = sorted(dirs)[-2]
+                analyst_file = latest_dir / "analyst_output.json"
+        
+        if analyst_file.exists():
+            with open(analyst_file) as f:
+                data = json.load(f)
+                adjustments = data.get("recommendations", {}).get("scriptwriter_adjustments", [])
+                
+                parts = []
+                if adjustments:
+                    parts.append("SCRIPTING ADJUSTMENTS: " + ", ".join(adjustments))
+                
+                if parts:
+                    return "\n\n=== LEARNED SIGNALS FROM PREVIOUS RUNS (CRITICAL TO FOLLOW) ===\n" + "\n".join(parts) + "\n=============================================================\n"
+    except Exception as e:
+        print(f"  [warn] Failed to load learned signals: {e}", file=sys.stderr)
+    return ""
 
 def sanitize_script_output(script: dict) -> dict:
     if not isinstance(script, dict):
@@ -121,7 +151,10 @@ def generate_script(research: dict, api_key: str) -> dict | None:
     ) if contradictions else "None"
 
     max_duration = int(os.environ.get("COLONY_MAX_DURATION_SECONDS", "60"))
-    prompt = f"""You are a video scriptwriter for a tech/AI news channel. Write a concise portrait video script (1080x1920).
+    
+    learned_signals = get_latest_learned_signals()
+    
+    prompt = f"""You are a video scriptwriter for a tech/AI news channel. Write a concise portrait video script (1080x1920).{learned_signals}
 
 STORY:
 {summary}
