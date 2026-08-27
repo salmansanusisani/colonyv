@@ -22,6 +22,10 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -395,7 +399,11 @@ async def run_production_director(stories: int):
 
     try:
         result = await run_factory_async(stories)
-        if result.get("error"):
+        from colonyv_agent import pipeline_runtime as rt
+        if rt.is_stop_requested():
+            log("ADK production stopped by operator.")
+            pipeline_state["current_step"] = "stopped"
+        elif result.get("error"):
             log(f"ADK production failed: {result['error']}")
         else:
             produced = result.get("stories_produced", [])
@@ -409,8 +417,9 @@ async def run_production_director(stories: int):
                     "factory_result": result,
                 },
             )
-        pipeline_state["progress"] = 100
-        pipeline_state["current_step"] = "complete"
+        if not rt.is_stop_requested():
+            pipeline_state["progress"] = 100
+            pipeline_state["current_step"] = "complete"
     except Exception as e:
         log(f"ADK production error: {e}")
         if notification_config.get("on_error"):
@@ -587,6 +596,8 @@ async def api_pipeline_pause():
     if not pipeline_state["running"]:
         return JSONResponse({"error": "Pipeline is not running"}, 409)
     pipeline_state["paused"] = True
+    from colonyv_agent import pipeline_runtime
+    pipeline_runtime.set_paused(True)
     proc = pipeline_state.get("current_process")
     if proc is not None and proc.poll() is None:
         try:
@@ -602,6 +613,8 @@ async def api_pipeline_resume():
     if not pipeline_state["running"]:
         return JSONResponse({"error": "Pipeline is not running"}, 409)
     pipeline_state["paused"] = False
+    from colonyv_agent import pipeline_runtime
+    pipeline_runtime.set_paused(False)
     proc = pipeline_state.get("current_process")
     if proc is not None and proc.poll() is None:
         try:
@@ -617,6 +630,8 @@ async def api_pipeline_stop():
     pipeline_state["paused"] = False
     pipeline_state["running"] = False
     pipeline_state["current_step"] = "stopped"
+    from colonyv_agent import pipeline_runtime
+    pipeline_runtime.request_stop()
     proc = pipeline_state.get("current_process")
     if proc is not None and proc.poll() is None:
         try:

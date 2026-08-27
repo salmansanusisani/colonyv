@@ -62,6 +62,11 @@ def run_factory(stories: int) -> dict[str, Any]:
         return {"error": "No usable candidates were discovered", "run_id": ctx.state.get("run_id")}
 
     for story in candidates[: stories]:
+        if not runtime.checkpoint(f"pending story {story['title'][:40]}"):
+            runtime.activity("autonomous", "stopped", "Run stopped by operator")
+            return {"stopped": True, "stories_produced": produced,
+                    "run_id": ctx.state.get("run_id")}
+
         gate = evaluate_story_candidate(
             title=story.get("title", ""),
             relevance_score=story.get("relevance_score", 0.0),
@@ -100,6 +105,11 @@ def run_factory(stories: int) -> dict[str, Any]:
             runtime.activity("research", "failed", research_gate["reason"])
             continue
 
+        if not runtime.checkpoint(f"story '{story['title'][:40]}' research complete"):
+            runtime.activity("autonomous", "stopped", "Run stopped by operator")
+            return {"stopped": True, "stories_produced": produced,
+                    "run_id": ctx.state.get("run_id")}
+
         script = write_script(ctx)
         if not script.get("success"):
             runtime.activity("script", "failed", script.get("error", "script failed"))
@@ -129,6 +139,11 @@ def run_factory(stories: int) -> dict[str, Any]:
         if not render or not render.get("success") or not render.get("output_exists"):
             runtime.activity("render", "failed", "Render failed for this story")
             continue
+
+        if not runtime.checkpoint(f"story '{story['title'][:40]}' rendered"):
+            runtime.activity("autonomous", "stopped", "Run stopped by operator")
+            return {"stopped": True, "stories_produced": produced,
+                    "run_id": ctx.state.get("run_id")}
 
         publication = evaluate_publication_gate(
             confidence=(research.get("confidence") or "low"),
@@ -185,6 +200,11 @@ def run_factory(stories: int) -> dict[str, Any]:
             f"[factory] story complete: {story['title'][:60]} -> "
             f"{render.get('mp4_path', 'no video')}"
         )
+
+    if not runtime.checkpoint("analysis"):
+        runtime.activity("autonomous", "stopped", "Run stopped by operator before analysis")
+        return {"stopped": True, "stories_produced": produced,
+                "run_id": ctx.state.get("run_id")}
 
     analysis = analyze_performance(ctx) if produced else {"success": False, "error": "no stories produced"}
 

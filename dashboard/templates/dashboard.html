@@ -821,6 +821,15 @@
                     <button id="agentRunBtn" class="btn-apple btn-apple-primary" onclick="startAgentRun()" title="Gemini + Google ADK Editorial Director operates every stage">
                         <span data-icon="bot"></span> Autonomous Run
                     </button>
+                    <button id="pauseBtn" class="btn-apple btn-apple-secondary" onclick="pausePipeline()" disabled style="border:1px solid var(--apple-amber); color:var(--apple-amber);">
+                        <span data-icon="pause"></span> Pause
+                    </button>
+                    <button id="resumeBtn" class="btn-apple btn-apple-secondary" onclick="resumePipeline()" disabled style="border:1px solid var(--apple-blue); color:var(--apple-blue);">
+                        <span data-icon="play"></span> Resume
+                    </button>
+                    <button id="stopBtn" class="btn-apple btn-apple-danger" onclick="stopPipeline()" disabled>
+                        <span data-icon="square"></span> Stop
+                    </button>
                 </div>
             </div>
 
@@ -1295,6 +1304,9 @@ CONTROLS
             const data = await resp.json();
             document.getElementById('agentRunBtn').disabled = true;
             document.getElementById('agentRunBtn').textContent = 'Editorial Director active...';
+            document.getElementById('pauseBtn').disabled = false;
+            document.getElementById('resumeBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
             document.getElementById('progressSection').style.display = 'block';
             document.getElementById('stepText').textContent = 'Editorial Director orchestrating production...';
             document.getElementById('liveLog').innerHTML = '';
@@ -1306,6 +1318,25 @@ CONTROLS
             const data = await resp.json();
             toast(data.error || 'Failed to start autonomous run', 'error');
         }
+    }
+
+    async function stopPipeline() {
+        document.getElementById('stopBtn').disabled = true;
+        await fetch('/api/pipeline/stop', { method: 'POST' });
+        toast('Run stopping...', 'info');
+        pollStatus();
+    }
+
+    async function pausePipeline() {
+        await fetch('/api/pipeline/pause', {method:'POST'});
+        toast('Run paused', 'info');
+        pollStatus();
+    }
+
+    async function resumePipeline() {
+        await fetch('/api/pipeline/resume', {method:'POST'});
+        toast('Run resumed', 'info');
+        pollStatus();
     }
 
     function startTimer() {
@@ -1337,8 +1368,11 @@ CONTROLS
 
         if (s.running) {
             dot.className = 'status-dot active';
-            text.textContent = 'Running (' + (s.current_step || '...') + ')';
+            text.textContent = s.paused ? 'Paused' : 'Running (' + (s.current_step || '...') + ')';
             document.getElementById('agentRunBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = !!s.paused;
+            document.getElementById('resumeBtn').disabled = !s.paused;
             document.getElementById('progressFill').style.width = s.progress + '%';
             document.getElementById('stepText').textContent = s.current_step + ' (' + s.stories_done + '/' + s.story_count + ' stories)';
 
@@ -1361,6 +1395,9 @@ CONTROLS
             }
             document.getElementById('agentRunBtn').disabled = false;
             document.getElementById('agentRunBtn').textContent = 'Autonomous Run';
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('resumeBtn').disabled = true;
             stopTimer();
             if (s.current_step === 'complete') {
                 toast('Pipeline completed!', 'info');

@@ -3,11 +3,16 @@
 The dashboard registers its logger and agent-activity updater here before a
 run so that the ADK tools (which run inside Google ADK's loop) can report
 progress to the same state the web dashboard streams over WebSocket.
+
+Pause / resume / stop are cooperative controls: the factory loop calls
+checkpoint() between stages and stories so a running production can be
+frozen mid-run or aborted cleanly from the dashboard.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -17,6 +22,8 @@ env_overrides: dict[str, str] = {}
 run_id: str | None = None
 output_dir: Path | None = None
 skip_publish: bool = False
+_paused: bool = False
+_stop_requested: bool = False
 
 
 def configure(
@@ -27,8 +34,9 @@ def configure(
     out_dir: Path | None = None,
     run: str | None = None,
     skip: bool = False,
+    reset_controls: bool = True,
 ) -> None:
-    global _log_fn, _activity_fn, env_overrides, output_dir, run_id, skip_publish
+    global _log_fn, _activity_fn, env_overrides, output_dir, run_id, skip_publish, _paused, _stop_requested
     if logger is not None:
         _log_fn = logger
     if activity is not None:
@@ -40,6 +48,14 @@ def configure(
     if run is not None:
         run_id = run
     skip_publish = skip
+    if reset_controls:
+        _paused = False
+        _stop_requested = False
+
+
+def set_paused(flag: bool) -> None:
+    global _paused
+    _paused = bool(flag)
 
 
 def log(message: str) -> None:
@@ -52,6 +68,33 @@ def log(message: str) -> None:
 def activity(key: str, status: str, detail: str) -> None:
     if _activity_fn is not None:
         _activity_fn(key, status, detail)
+
+
+def request_stop() -> None:
+    global _stop_requested, _paused
+    _stop_requested = True
+    _paused = False
+
+
+def is_stop_requested() -> bool:
+    return bool(_stop_requested)
+
+
+def is_paused() -> bool:
+    return bool(_paused)
+
+
+def checkpoint(label: str = "") -> bool:
+    """Cooperative control point for the factory loop.
+
+    Blocks while a run is paused, and returns False when a stop was
+    requested so the caller can abort cleanly.
+    """
+    if _stop_requested:
+        return False
+    while _paused and not _stop_requested:
+        time.sleep(0.5)
+    return not _stop_requested
 
 
 def process_env() -> dict[str, str]:
