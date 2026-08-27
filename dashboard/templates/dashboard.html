@@ -1322,29 +1322,27 @@ CONTROLS
 
     // Load Runs
     async function loadRuns() {
-        const resp = await fetch('/api/runs');
-        const data = await resp.json();
         const tbody = document.getElementById('runsTable');
         const empty = document.getElementById('runsEmpty');
-
-        if (data.runs.length === 0) {
+        try {
+            const resp = await fetch('/api/runs');
+            const data = await resp.json();
+            if (!data.runs || data.runs.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+            tbody.innerHTML = data.runs.map(r => `
+                <tr class="clickable" onclick="showRunDetail('${r.run_id}')">
+                    <td style="font-family:monospace; font-weight:600;">${esc(r.run_id)}</td><td>${r.stories}</td><td>${r.researched}</td><td>${r.scripted}</td><td>${r.rendered}</td><td>${r.video_size_mb} MB</td>
+                    <td>${r.has_video ? '<span class="badge badge-green">Rendered</span>' : '<span class="badge badge-gray">Partial</span>'}</td>
+                </tr>`).join('');
+        } catch (error) {
             tbody.innerHTML = '';
+            empty.textContent = 'Run history unavailable.';
             empty.style.display = 'block';
-            return;
         }
-
-        empty.style.display = 'none';
-        tbody.innerHTML = data.runs.map(r => `
-            <tr class="clickable" onclick="showRunDetail('${r.run_id}')">
-                <td style="font-family:monospace; font-weight:600;">${esc(r.run_id)}</td>
-                <td>${r.stories}</td>
-                <td>${r.researched}</td>
-                <td>${r.scripted}</td>
-                <td>${r.rendered}</td>
-                <td>${r.video_size_mb} MB</td>
-                <td>${r.has_video ? '<span class="badge badge-green">Rendered</span>' : '<span class="badge badge-gray">Partial</span>'}</td>
-            </tr>
-        `).join('');
     }
 
     async function showRunDetail(runId) {
@@ -1372,22 +1370,19 @@ CONTROLS
 
     // Analytics
     async function loadAnalytics() {
-        const resp = await fetch('/api/analytics');
-        const data = await resp.json();
         const statIds = ['statRuns', 'statStories', 'statRendered', 'statStorageValue'];
-        statIds.forEach(id => {
-            const el = document.getElementById(id);
-            el.classList.remove('loading');
-        });
-        document.getElementById('statRuns').textContent = data.total_runs;
-        document.getElementById('statStories').textContent = data.total_stories;
-        document.getElementById('statRendered').textContent = data.total_rendered;
-        document.getElementById('statStorage').textContent = 'Video files on disk';
-        document.getElementById('throughputSummary').textContent = Number(data.total_stories || 0).toLocaleString();
-        document.getElementById('storageSummary').textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
+        try {
+            const resp = await fetch('/api/analytics');
+            if (!resp.ok) throw new Error(`Analytics request failed: ${resp.status}`);
+            const data = await resp.json();
+            document.getElementById('statRuns').textContent = data.total_runs || 0;
+            document.getElementById('statStories').textContent = data.total_stories || 0;
+            document.getElementById('statRendered').textContent = data.total_rendered || 0;
+            document.getElementById('throughputSummary').textContent = Number(data.total_stories || 0).toLocaleString();
+            document.getElementById('storageSummary').textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
 
-        if (charts.stories) charts.stories.destroy();
-        if (charts.sizes) charts.sizes.destroy();
+            if (charts.stories) charts.stories.destroy();
+            if (charts.sizes) charts.sizes.destroy();
 
         charts.stories = new Chart(document.getElementById('storiesChart'), {
             type: 'bar',
@@ -1399,14 +1394,20 @@ CONTROLS
             data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Rendered storage', data: data.runs.map(r=>r.size_mb), borderColor: '#5856d6', backgroundColor: 'rgba(88, 86, 214, .12)', fill: true, tension: .38, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2, pointBorderColor: '#5856d6' }] },
             options: { responsive: true, maintainAspectRatio: false, animation: { duration: 1100, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${Number(ctx.parsed.y || 0).toFixed(1)} MB rendered` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { color: '#86868b', font: { size: 10 }, callback: value => `${value} MB` } } } }
         });
-        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
             document.getElementById('storiesChartStage').classList.remove('reveal');
             document.getElementById('sizesChartStage').classList.remove('reveal');
             void document.getElementById('storiesChartStage').offsetWidth;
             void document.getElementById('sizesChartStage').offsetWidth;
             document.getElementById('storiesChartStage').classList.add('reveal');
             document.getElementById('sizesChartStage').classList.add('reveal');
-        });
+            });
+        } catch (error) {
+            document.getElementById('throughputSummary').textContent = 'Unavailable';
+            document.getElementById('storageSummary').textContent = 'Unavailable';
+        } finally {
+            statIds.forEach(id => document.getElementById(id)?.classList.remove('loading'));
+        }
     }
 
     // YouTube
@@ -1489,7 +1490,8 @@ CONTROLS
     }
 
     async function loadDashboardData() {
-        await Promise.allSettled([loadRuns(), loadAnalytics(), loadYouTube(), loadCosts()]);
+        const results = await Promise.allSettled([loadRuns(), loadAnalytics(), loadYouTube(), loadCosts()]);
+        results.filter(result => result.status === 'rejected').forEach(result => console.error('Dashboard data load failed:', result.reason));
     }
 
     async function uploadYouTubeSecret() {
@@ -1543,11 +1545,16 @@ CONTROLS
 
     // Costs
     async function loadCosts() {
-        const resp = await fetch('/api/analytics');
-        const data = await resp.json();
         const el = document.getElementById('statStorageValue');
-        el.classList.remove('loading');
-        el.textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
+        try {
+            const resp = await fetch('/api/analytics');
+            const data = await resp.json();
+            el.textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
+        } catch (error) {
+            el.textContent = '0.0 MB';
+        } finally {
+            el.classList.remove('loading');
+        }
     }
 
     // Feeds
