@@ -42,19 +42,20 @@ Current production path:
 ```text
 Cloud Run dashboard/API -> Google ADK Editorial Director -> Gemini on Vertex AI
                        -> Firestore run state and live Agent Workspace
-                       -> Discovery -> Research -> Script -> Remotion -> YouTube -> Analyst
+                       -> Discovery -> Research -> Script -> ScenePlan -> Remotion -> YouTube -> Analyst
 ```
 
-**6 autonomous agents** run sequentially per story:
+**7 autonomous agents** run sequentially per story:
 
 | Step | Agent | What it does | Output |
 |------|-------|-------------|--------|
 | 1 | **Monitor** | Scans RSS feeds, scores stories by relevance/novelty/urgency via LLM | `*_monitor.json` |
 | 2 | **Research** | Crawls source URLs, extracts content, fact-checks via LLM | `*_research.json` |
 | 3 | **Scriptwriter** | Generates hook/body/CTA script with visual beats via LLM | `*_script.json` |
-| 4 | **Producer** | TTS narration + Remotion video render (portrait 1080x1920) | `*.mp4` |
-| 5 | **Publisher** | OAuth2 upload to YouTube with title/description/tags | YouTube URL |
-| 6 | **Analyst** | Post-run performance analysis, learns from feedback signals | `analyst_output.json` |
+| 4 | **ScenePlanner** | Picks a Remotion scene template per beat (stat/diagram/kinetic/image/timeline/quiet) with exact figures | `*_scene_plan.json` |
+| 5 | **Producer** | TTS narration + Remotion video render (portrait 1080x1920) | `*.mp4` |
+| 6 | **Publisher** | OAuth2 upload to YouTube with title/description/tags | YouTube URL |
+| 7 | **Analyst** | Post-run performance analysis, learns from feedback signals | `analyst_output.json` |
 
 ## Tech Stack
 
