@@ -8,8 +8,8 @@ from colonyv_agent.tools import pipeline
 
 def test_production_agent_has_execution_and_gate_tools():
     names = {getattr(tool, "__name__", str(tool)) for tool in production_agent.tools}
-    assert {"discover_stories", "research_story", "write_script", "request_render",
-            "publish_to_youtube", "analyze_performance"} <= names
+    assert {"discover_stories", "research_story", "write_script", "plan_scenes",
+            "request_render", "publish_to_youtube", "analyze_performance"} <= names
     assert {"evaluate_story_candidate", "evaluate_research_gate", "evaluate_render_result",
             "evaluate_publication_gate", "evaluate_upload_result"} <= names
 
@@ -126,6 +126,25 @@ def test_stage_analyst_terminal(monkeypatch):
     result = stages.run_stage(state, "analyst", 0, 1)
     assert result["decision"] == "complete"
     assert result["next"] == []
+
+
+def test_stage_publish_handles_full_report_lists(monkeypatch):
+    from colonyv_agent import stages
+    state: dict = {
+        "research": {
+            "confidence": "medium",
+            "claims": [{"text": "a", "verified": True}],
+            "contradictions": [{"issue": "c1"}],
+        }
+    }
+
+    def fake_upload(tool_context):
+        return {"success": False, "skipped": True, "reason": "skip_publish"}
+
+    monkeypatch.setattr(stages, "publish_to_youtube", fake_upload)
+    result = stages.run_stage(state, "publish", 0, 1)
+    assert result["decision"] in {"blocked", "skipped"}
+    assert ("analyst", 0, 1) in result["next"]
 
 
 def test_python_exec_prefers_venv(tmp_path):

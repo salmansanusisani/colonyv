@@ -291,6 +291,48 @@ def write_script(tool_context: ToolContext) -> dict[str, Any]:
     }
 
 
+def plan_scenes(tool_context: ToolContext) -> dict[str, Any]:
+    """Let the ScenePlanner choose the best Remotion scene template per beat."""
+    script = tool_context.state.get("script")
+    if not script:
+        return {"success": False, "error": "You must call write_script() first to produce a script."}
+
+    run_id = tool_context.state.get("run_id") or runtime.run_id
+    run_dir = _ensure_run(run_id)
+    story_id = script.get("story_id", run_id)
+    script_json = run_dir / f"{story_id}_script.json"
+    if not script_json.exists():
+        _write(run_dir, f"{story_id}_script.json", script)
+
+    runtime.activity("plan", "active", f"Planning scenes for {story_id[:8]}")
+    result = run_script(
+        [get_python_exec(), str(AGENTS_DIR / "planner" / "planner.py"),
+         "--script-json", str(script_json)],
+        cwd=str(AGENTS_DIR),
+        timeout=180,
+        step_label=f"plan-{story_id[:8]}",
+    )
+    plan = _parse_json_output(result.stdout, expect="object")
+    if not plan or not plan.get("scenes"):
+        runtime.activity("plan", "failed", "Scene plan produced no scenes")
+        return {"success": False, "error": "Scene plan failed", "output": result.stdout[-400:]}
+
+    plan["story_id"] = story_id
+    _write(run_dir, f"{story_id}_scene_plan.json", plan)
+    tool_context.state["scene_plan"] = plan
+    runtime.activity(
+        "plan",
+        "complete",
+        f"{len(plan['scenes'])} scenes planned, accent={plan.get('accent_color', '')}",
+    )
+    return {
+        "success": True,
+        "scenes": len(plan["scenes"]),
+        "accent_color": plan.get("accent_color", ""),
+        "story_id": story_id,
+    }
+
+
 def request_render(tool_context: ToolContext) -> dict[str, Any]:
     """Render the scripted story into a portrait MP4 via Remotion."""
     script = tool_context.state.get("script")
@@ -306,9 +348,15 @@ def request_render(tool_context: ToolContext) -> dict[str, Any]:
 
     output_mp4 = run_dir / f"{story_id}.mp4"
     runtime.activity("render", "active", f"Rendering video for {story_id[:8]}")
+    render_cmd = [
+        get_python_exec(), str(PROJECT_ROOT / "producer" / "build_video.py"),
+        str(script_json), "--output", str(output_mp4),
+    ]
+    scene_plan = run_dir / f"{story_id}_scene_plan.json"
+    if scene_plan.exists():
+        render_cmd += ["--scene-plan", str(scene_plan)]
     result = run_script(
-        [get_python_exec(), str(PROJECT_ROOT / "producer" / "build_video.py"),
-         str(script_json), "--output", str(output_mp4)],
+        render_cmd,
         cwd=str(PROJECT_ROOT),
         timeout=int(os.getenv("PRODUCER_TIMEOUT", "1800")),
         step_label=f"render-{story_id[:8]}",

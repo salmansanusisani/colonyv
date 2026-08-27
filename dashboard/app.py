@@ -174,6 +174,7 @@ AGENT_DEFINITIONS = [
     ("monitor", "Discovery Agent", "Find and rank the most valuable stories"),
     ("research", "Research Agent", "Gather evidence and test claims"),
     ("script", "Scriptwriter Agent", "Shape evidence into a concise story"),
+    ("plan", "Scene Planner", "Choose the best scene template per beat"),
     ("render", "Visual Producer", "Build narration, scenes, and motion"),
     ("publish", "Publisher Agent", "Deliver the finished video to YouTube"),
     ("analyst", "Analyst Agent", "Learn signals from the completed run"),
@@ -488,7 +489,7 @@ async def api_pubsub_run_stage(request: Request):
         stage = attrs.get("stage", "")
         story_index = int(attrs.get("story_index", 0))
         attempt = int(attrs.get("attempt", 1))
-        if not run_id or stage not in {"monitor", "research", "script", "render", "publish", "analyst"}:
+        if not run_id or stage not in {"monitor", "research", "script", "plan", "render", "publish", "analyst"}:
             return JSONResponse({"error": "invalid message"}, 400)
         asyncio.create_task(handle_stage_message(run_id, stage, story_index, attempt))
         return JSONResponse({"ok": True, "ack": True})

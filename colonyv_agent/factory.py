@@ -23,6 +23,7 @@ from colonyv_agent.tools.editorial import (
 from colonyv_agent.tools.pipeline import (
     analyze_performance,
     discover_stories,
+    plan_scenes,
     publish_to_youtube,
     request_render,
     research_story,
@@ -102,6 +103,12 @@ def run_factory(stories: int) -> dict[str, Any]:
         if not script.get("success"):
             runtime.activity("script", "failed", script.get("error", "script failed"))
             continue
+
+        plan = plan_scenes(ctx)
+        if plan.get("success"):
+            runtime.log(f"[factory] scene plan: {plan['scenes']} scenes, accent={plan.get('accent_color', '')}")
+        else:
+            runtime.log(f"[factory] scene plan failed ({plan.get('error')}); using auto styles")
 
         render = None
         render_gate: dict[str, Any] | None = None

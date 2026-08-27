@@ -23,13 +23,14 @@ from colonyv_agent.tools.editorial import (
 from colonyv_agent.tools.pipeline import (
     analyze_performance,
     discover_stories,
+    plan_scenes,
     publish_to_youtube,
     request_render,
     research_story,
     write_script,
 )
 
-STAGES = ["monitor", "research", "script", "render", "publish", "analyst"]
+STAGES = ["monitor", "research", "script", "plan", "render", "publish", "analyst"]
 
 
 class StageState:
@@ -77,12 +78,13 @@ def run_stage(
         )
         if gate["decision"] != "continue":
             return {"stage": stage, "decision": "rejected",
-                    "story_id": story.get("story_id"), "next": [], "state": state}
+                    "story_id": story.get("story_id"),
+                    "next": _next_candidate_research(state, story_index), "state": state}
         research = research_story(story_index, ctx)
         if not research.get("success"):
             return {"stage": stage, "decision": "failed",
                     "story_id": story.get("story_id"), "error": research.get("error"),
-                    "next": [], "state": state}
+                    "next": _next_candidate_research(state, story_index), "state": state}
         rg = evaluate_research_gate(
             confidence=research.get("confidence", "low") or "low",
             verified_claims=research.get("verified_claims", 0),
@@ -96,7 +98,8 @@ def run_stage(
                     "state": state}
         if rg["decision"] == "stop":
             return {"stage": stage, "decision": "stop",
-                    "reason": rg["reason"], "next": [], "state": state}
+                    "reason": rg["reason"], "next": _next_candidate_research(state, story_index),
+                    "state": state}
         return {"stage": stage, "decision": "continue", "next": [("script", story_index, 1)],
                 "state": state}
 
@@ -105,7 +108,16 @@ def run_stage(
         if not script.get("success"):
             return {"stage": stage, "decision": "failed", "error": script.get("error"),
                     "next": [], "state": state}
-        return {"stage": stage, "decision": "continue", "next": [("render", story_index, 1)],
+        return {"stage": stage, "decision": "continue", "next": [("plan", story_index, 1)],
+                "state": state}
+
+    if stage == "plan":
+        plan = plan_scenes(ctx)
+        if plan.get("success"):
+            return {"stage": stage, "decision": "continue", "next": [("render", story_index, 1)],
+                    "state": state}
+        runtime.log(f"[plan] planner failed ({plan.get('error')}); falling back to auto styles")
+        return {"stage": stage, "decision": "fallback", "next": [("render", story_index, 1)],
                 "state": state}
 
     if stage == "render":
@@ -127,12 +139,13 @@ def run_stage(
 
     if stage == "publish":
         research = state.get("research", {})
+        claims = research.get("claims", []) or []
+        contradictions = research.get("contradictions", []) or []
+        verified_claims = sum(1 for c in claims if isinstance(c, dict) and c.get("verified"))
         pg = evaluate_publication_gate(
             confidence=research.get("confidence", "low") or "low",
-            unresolved_contradictions=int(research.get("contradictions", 0)),
-            unsupported_claims=max(
-                0, int(research.get("total_claims", 0)) - int(research.get("verified_claims", 0))
-            ),
+            unresolved_contradictions=len(contradictions),
+            unsupported_claims=max(0, len(claims) - verified_claims),
         )
         if pg["decision"] != "publish":
             runtime.log(f"[publish] publication blocked: {pg['reason']}")
@@ -157,3 +170,16 @@ def run_stage(
 
     return {"stage": stage, "decision": "failed", "error": f"Unknown stage {stage}",
             "next": [], "state": state}
+
+
+def _next_candidate_research(state: dict[str, Any], story_index: int) -> list[tuple[str, int, int]]:
+    """Return the next candidate story's research stage, if any remain."""
+    candidates = [
+        s for s in state.get("stories", []) if s.get("story_id") and s.get("title")
+    ]
+    target = int(state.get("stories_target", 1))
+    eligible = candidates[:target]
+    for cand in eligible:
+        if cand.get("index", 0) > story_index:
+            return [("research", cand["index"], 1)]
+    return []

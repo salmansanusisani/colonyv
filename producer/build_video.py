@@ -21,6 +21,7 @@ import json
 import math
 import os
 import random
+import re
 import struct
 import subprocess
 import sys
@@ -199,7 +200,7 @@ def download_editorial_asset(url: str, output_path: Path, asset_type: str = "art
 
 # ---------- Main build ----------
 
-async def build_video(script_path: str, output_path: str | None = None) -> None:
+async def build_video(script_path: str, output_path: str | None = None, scene_plan_path: str | None = None) -> None:
     import shutil
 
     script_data = load_script(script_path)
@@ -228,6 +229,37 @@ async def build_video(script_path: str, output_path: str | None = None) -> None:
             beat["visual_style"] = "quiet"
         else:
             beat["visual_style"] = "editorial"
+
+    # Apply the ScenePlanner's per-beat scene templates when provided.
+    if scene_plan_path:
+        try:
+            with open(scene_plan_path) as f:
+                plan = json.load(f)
+            scene_by_beat = {s.get("beat_name"): s for s in plan.get("scenes", [])}
+            for beat in beats_data:
+                scene = scene_by_beat.get(beat.get("name"))
+                if not scene:
+                    continue
+                scene_type = scene.get("scene_type")
+                mapping = {
+                    "stat": "stat_led",
+                    "diagram": "diagram",
+                    "kinetic": "editorial",
+                    "image": "image_led",
+                    "timeline": "timeline",
+                    "quiet": "quiet",
+                }
+                if scene_type in mapping:
+                    beat["visual_style"] = mapping[scene_type]
+                if scene.get("headline") and scene_type in {"stat", "diagram"}:
+                    beat["beat_scene_headline"] = scene["headline"]
+                if scene.get("stat_value") and scene_type == "stat":
+                    beat["beat_scene_stat"] = scene["stat_value"]
+            if plan.get("accent_color") and re.match(r"^#[0-9a-fA-F]{6}$", plan["accent_color"]):
+                script_data["accent_color"] = plan["accent_color"]
+            print(f"  [plan] applied {len(plan.get('scenes', []))} scene templates")
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            print(f"  [warn] Could not apply scene plan ({e}); using auto styles")
     # --- 1. Generate one measured narration file per scene ---
     print(f"[1/4] Generating {len(beats_data) + 2} audio files (voice={VOICE})...")
 
@@ -375,9 +407,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Render a video from a ScriptOutput JSON")
     parser.add_argument("script_json", help="Path to ScriptOutput JSON file")
     parser.add_argument("--output", "-o", help="Output video path")
+    parser.add_argument("--scene-plan", help="Path to ScenePlan JSON to override beat scene styles")
     args = parser.parse_args()
 
-    asyncio.run(build_video(args.script_json, args.output))
+    asyncio.run(build_video(args.script_json, args.output, args.scene_plan))
 
 
 if __name__ == "__main__":
