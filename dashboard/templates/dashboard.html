@@ -1452,12 +1452,12 @@ CONTROLS
             document.getElementById('throughputSummary').textContent = Number(data.total_content || 0).toLocaleString();
             document.getElementById('storageSummary').textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
 
-            if (charts.pieces of content) charts.content.destroy();
+            if (charts.content) charts.content.destroy();
             if (charts.sizes) charts.sizes.destroy();
 
         charts.content = new Chart(document.getElementById('contentChart'), {
             type: 'bar',
-            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories processed', data: data.runs.map(r=>r.pieces of content), backgroundColor: 'rgba(0, 113, 227, .82)', hoverBackgroundColor: '#0077ed', borderRadius: 8, borderSkipped: false, maxBarThickness: 28 }] },
+            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories processed', data: data.runs.map(r=>r.content), backgroundColor: 'rgba(0, 113, 227, .82)', hoverBackgroundColor: '#0077ed', borderRadius: 8, borderSkipped: false, maxBarThickness: 28 }] },
             options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${ctx.parsed.y} content processed` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { precision: 0, color: '#86868b', font: { size: 10 } } } } }
         });
         charts.sizes = new Chart(document.getElementById('sizesChart'), {
