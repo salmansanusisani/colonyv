@@ -49,13 +49,13 @@ Cloud Run dashboard/API -> Google ADK Editorial Director -> Gemini on Vertex AI
 
 | Step | Agent | What it does | Output |
 |------|-------|-------------|--------|
-| 1 | **Monitor** | Scans RSS feeds, scores stories by relevance/novelty/urgency via LLM | `*_monitor.json` |
-| 2 | **Research** | Crawls source URLs, extracts content, fact-checks via LLM | `*_research.json` |
-| 3 | **Scriptwriter** | Generates hook/body/CTA script with visual beats via LLM | `*_script.json` |
+| 1 | **Monitor** | Scans live web/topic search, scores content by relevance/novelty/urgency via LLM | `*_monitor.json` |
+| 2 | **Research** | Crawls source URLs, extracts content via self-healing scraper, fact-checks via LLM | `*_research.json` |
+| 3 | **Scriptwriter** | Generates hook/body/CTA script with visual beats via LLM, incorporating learned signals | `*_script.json` |
 | 4 | **ScenePlanner** | Picks a Remotion scene template per beat (stat/diagram/kinetic/image/timeline/quiet) with exact figures | `*_scene_plan.json` |
-| 5 | **Producer** | TTS narration + Remotion video render (portrait 1080x1920) | `*.mp4` |
-| 6 | **Publisher** | OAuth2 upload to YouTube with title/description/tags | YouTube URL |
-| 7 | **Analyst** | Post-run performance analysis, learns from feedback signals | `analyst_output.json` |
+| 5 | **Producer** | TTS narration + Remotion video render (portrait 1080x1920) with advanced motion-design rules | `*.mp4` |
+| 6 | **Publisher** | OAuth2 upload to YouTube with title/description/tags. **Always publishes** (never blocks on gate failure). | YouTube URL |
+| 7 | **Analyst** | Post-run performance analysis, learns from feedback signals, updates Monitor/Scriptwriter prompts | `analyst_output.json` |
 
 ## Tech Stack
 
