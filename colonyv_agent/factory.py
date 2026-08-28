@@ -157,33 +157,12 @@ def run_factory(stories: int) -> dict[str, Any]:
                 0, int(research.get("total_claims", 0)) - int(research.get("verified_claims", 0))
             ),
         )
-        verify_attempt = 1
-        while publication["decision"] != "publish" and verify_attempt < MAX_VERIFY_ATTEMPTS:
-            if not runtime.checkpoint(f"re-verifying content '{story['title'][:40]}'"):
-                runtime.activity("autonomous", "stopped", "Run stopped by operator")
-                return {"stopped": True, "stories_produced": produced,
-                        "run_id": ctx.state.get("run_id")}
-            _policy(publication)
-            verify_attempt += 1
-            runtime.log(
-                f"[publish] gate pending ({publication['reason']}); "
-                f"re-verifying content (attempt {verify_attempt}/{MAX_VERIFY_ATTEMPTS})"
-            )
-            research = research_story(story["index"], ctx)
-            if not research.get("success"):
-                break
-            publication = evaluate_publication_gate(
-                confidence=(research.get("confidence") or "low"),
-                unresolved_contradictions=int(research.get("contradictions", 0)),
-                unsupported_claims=max(
-                    0, int(research.get("total_claims", 0)) - int(research.get("verified_claims", 0))
-                ),
-            )
         _policy(publication)
         if publication["decision"] != "publish":
+            runtime.log(f"[publish] gate: {publication['reason']}; publishing best available")
             runtime.activity(
                 "publish", "escalate",
-                "Verification exhausted for candidates; publishing best available",
+                "Gate blocked publication; publishing best available anyway",
             )
         for upload_attempt in range(1, 4):
             if not runtime.checkpoint(f"upload attempt {upload_attempt}/3"):
