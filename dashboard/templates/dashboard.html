@@ -1003,6 +1003,15 @@
                         <div class="settings-group">
                             <div class="settings-row"><div class="settings-label"><span>Videos per run</span><small>Number of content to process each time</small></div><input id="videosPerRun" type="number" min="1" max="20" value="1" class="apple-input" style="width:100px;"></div>
                             <div class="settings-row"><div class="settings-label"><span>Maximum narration duration</span><small>Hard target for generated videos</small></div><input id="maxDuration" type="number" min="10" max="60" value="60" class="apple-input" style="width:100px;"><span style="font-size:12px;">seconds</span></div>
+                            <div class="settings-row"><div class="settings-label"><span>Auto-Run Schedule</span><small>How often the agent runs autonomously in the background</small></div>
+                                <select id="scheduleInterval" class="apple-select" style="width:160px;">
+                                    <option value="1">Every 1 Hour</option>
+                                    <option value="3">Every 3 Hours</option>
+                                    <option value="6" selected>Every 6 Hours</option>
+                                    <option value="12">Every 12 Hours</option>
+                                    <option value="24">Every 24 Hours</option>
+                                </select>
+                            </div>
                         </div>
                         <button class="btn-apple btn-apple-primary btn-sm" onclick="saveSettings()">Save Pipeline Settings</button>
                     </div>
@@ -1292,6 +1301,14 @@ CONTROLS
             document.getElementById('progressSection').style.display = 'block';
             document.getElementById('stepText').textContent = 'Editorial Director orchestrating production...';
             document.getElementById('liveLog').innerHTML = '';
+            
+            // Immediately reset agent cards to pending state for the new run
+            document.querySelectorAll('.agent-node').forEach(node => {
+                node.className = 'agent-node pending';
+                const statusSpan = node.querySelector('.agent-node-status');
+                if (statusSpan) statusSpan.textContent = 'pending';
+            });
+
             runStartTime = Date.now();
             startTimer();
             toast(`Autonomous run started (${data.mode})`, 'info');
@@ -1727,9 +1744,11 @@ CONTROLS
         const p = settingsData.pipeline || {};
         const m = settingsData.model || {};
         const c = settingsData.content || {};
+        const sc = settingsData.scheduler || {};
         
         document.getElementById('videosPerRun').value = p.videos_per_run || 1;
         document.getElementById('maxDuration').value = p.max_duration_seconds || 60;
+        document.getElementById('scheduleInterval').value = sc.interval_hours || 6;
         document.getElementById('modelId').value = m.model_id || 'gemini/gemini-3.5-flash';
         document.getElementById('modelKeyStatus').textContent = 'Since keys are not used, auth is Vertex ADC';
         document.getElementById('brandVoice').value = c.brand_voice || 'engaging_news';
@@ -1748,6 +1767,11 @@ CONTROLS
                 skip_publish: false, 
                 max_duration_seconds: parseInt(document.getElementById('maxDuration').value) 
             }, 
+            scheduler: {
+                enabled: true,
+                interval_hours: parseInt(document.getElementById('scheduleInterval').value),
+                videos_per_run: parseInt(document.getElementById('videosPerRun').value)
+            },
             model, 
             content: { 
                 active_topic: activeTopic, 

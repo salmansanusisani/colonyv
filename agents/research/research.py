@@ -170,16 +170,30 @@ def extract_editorial_assets(html: str, source_url: str) -> list[dict]:
     found = []
     seen = set()
     candidates = []
+    
+    # Prioritize OpenGraph and Twitter card hero images
     for tag in soup.find_all("meta"):
         prop = str(tag.get("property", "")).lower()
         name = str(tag.get("name", "")).lower()
         if prop in {"og:image", "og:image:url"} or name in {"twitter:image", "twitter:image:src"}:
             candidates.append((tag.get("content", ""), "article_image"))
-    for image in soup.find_all("img")[:20]:
-        candidates.append((image.get("src", ""), "article_image"))
+            
+    # Then article content images
+    for image in soup.find_all("img")[:25]:
+        src = image.get("src", "") or image.get("data-src", "")
+        if src:
+            candidates.append((src, "article_image"))
+            
+    junk_patterns = {"googlelogo", "favicon", "1x1", "pixel", "spinner", "spacer", "avatar", "badge", ".svg"}
     for raw_url, asset_type in candidates:
+        if not raw_url:
+            continue
         image_url = urljoin(source_url, str(raw_url).strip())
         if not image_url.startswith(("http://", "https://")) or image_url in seen:
+            continue
+        # Filter out junk icons
+        low = image_url.lower()
+        if any(j in low for j in junk_patterns):
             continue
         seen.add(image_url)
         found.append({

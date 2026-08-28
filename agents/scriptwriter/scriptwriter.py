@@ -185,6 +185,7 @@ CRITICAL RULES:
 - The body beats will be rendered as separate visual scenes
 - Keep the spoken narration below {max_duration} seconds. Prefer 3-4 seconds hook, 20-30 seconds body, and a short CTA.
 - Max 3 visual beats in the body
+- If AVAILABLE EDITORIAL ASSETS contains images, you MUST use them on 1-2 beats! Set "beat_type": "image", "visual_style": "image_led", "asset_source_url": "<url from assets>", "asset_subject": "<subject>", "asset_type": "article_image", "image_treatment": "editorial_frame", "asset_credit": "<credit>".
 
 Return a JSON object with:
 - hook: string (opening line)
@@ -197,9 +198,13 @@ Return a JSON object with:
  - suggested_visual_beats: array of objects, each with:
   - name: string (e.g. "beat_01_overview")
   - narration_text: string (the narration for this beat)
-   - beat_type: one of "stat_reveal", "diagram", "kinetic_text", "image", "custom"
-   - asset_subject, asset_type, image_treatment, asset_source_url, asset_credit when a real editorial asset supports the beat
-   - visual_style: one of editorial, image_led, stat_led, diagram, timeline, quiet
+  - beat_type: one of "image", "stat_reveal", "diagram", "kinetic_text", "custom"
+  - asset_subject: string (subject of the image if beat_type is image)
+  - asset_type: "article_image"
+  - image_treatment: "editorial_frame"
+  - asset_source_url: string (must be a valid image URL from AVAILABLE EDITORIAL ASSETS)
+  - asset_credit: string (source credit)
+  - visual_style: one of "image_led", "editorial", "stat_led", "diagram", "timeline", "quiet"
 
 AVAILABLE EDITORIAL ASSETS:
 {json.dumps(editorial_assets, ensure_ascii=True)}

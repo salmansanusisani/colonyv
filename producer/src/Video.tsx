@@ -95,8 +95,8 @@ const SubjectImage: React.FC<{name: string; duration: number; side?: "left" | "r
   const scale = interpolate(frame, [0, duration], [1.0, 1.08], {extrapolateRight: "clamp", extrapolateLeft: "clamp"});
 
   return (
-    <div style={{position: "absolute", top: treatment === "logo_mark" ? 420 : 250, [side]: treatment === "logo_mark" ? 70 : -70, width: treatment === "logo_mark" ? 420 : 660, height: treatment === "logo_mark" ? 260 : 1100, overflow: "hidden", borderRadius: treatment === "logo_mark" ? 0 : 44, background: treatment === "logo_mark" ? "transparent" : "#fff", opacity: reveal, transform: `translateX(${(1 - reveal) * (side === "right" ? 70 : -70)}px) translateY(${yDrift}px)`}}>
-      <Img src={staticFile(`images/${name}.png`)} style={{width: "100%", height: "100%", objectFit: treatment === "logo_mark" ? "contain" : "cover", transform: treatment === "logo_mark" ? `scale(${.9 + reveal * .1})` : `scale(${scale}) translateX(${xDrift}px)`, filter: "saturate(.95) contrast(1.05)"}} />
+    <div style={{position: "absolute", top: treatment === "logo_mark" ? 420 : 250, [side]: treatment === "logo_mark" ? 70 : -70, width: treatment === "logo_mark" ? 420 : 660, height: treatment === "logo_mark" ? 260 : 1100, overflow: "hidden", borderRadius: treatment === "logo_mark" ? 0 : 44, background: treatment === "logo_mark" ? "transparent" : "#fff", boxShadow: "0 24px 64px rgba(0,0,0,0.12)", border: "1px solid rgba(0,0,0,0.06)", opacity: reveal, transform: `translateX(${(1 - reveal) * (side === "right" ? 70 : -70)}px) translateY(${yDrift}px)`}}>
+      <Img src={staticFile(`images/${name}.png`)} style={{width: "100%", height: "100%", objectFit: treatment === "logo_mark" ? "contain" : "cover", transform: treatment === "logo_mark" ? `scale(${.9 + reveal * .1})` : `scale(${scale}) translateX(${xDrift}px)`, filter: "saturate(.98) contrast(1.02)"}} />
       {treatment !== "logo_mark" && <div style={{position: "absolute", inset: 0, background: side === "right" ? "linear-gradient(90deg, #f8f8f6 0%, transparent 38%)" : "linear-gradient(270deg, #f8f8f6 0%, transparent 38%)"}} />}
     </div>
   );
@@ -242,16 +242,8 @@ const OutroScene: React.FC<{text: string; duration: number; accent: string}> = (
 };
 
 const Vignette: React.FC = () => (
-  <AbsoluteFill style={{pointerEvents: "none", background: "radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.3) 150%)"}} />
+  <AbsoluteFill style={{pointerEvents: "none", background: "radial-gradient(circle at center, transparent 40%, rgba(10,10,12,0.18) 120%)"}} />
 );
-
-const Grain: React.FC = () => {
-  const frame = useCurrentFrame();
-  const seed = (frame % 4) * 50;
-  return (
-    <AbsoluteFill style={{pointerEvents: "none", opacity: 0.28, backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' stitchTiles='stitch' seed='${seed}'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`}} />
-  );
-};
 
 export const ContentVideo: React.FC<VideoProps> = ({script}) => {
   const allText = `${script.hook} ${script.body}`;
@@ -280,9 +272,8 @@ export const ContentVideo: React.FC<VideoProps> = ({script}) => {
       })}
       <Sequence from={totalFrames - outroFrames} durationInFrames={outroFrames}><OutroScene text={script.cta} duration={outroFrames} accent={accent} /></Sequence>
       
-      {/* 5-layer stack rule: Grade + Grain + Vignette on top */}
-      <div style={{position: "absolute", inset: 0, pointerEvents: "none", mixBlendMode: "overlay", opacity: 0.15, background: "linear-gradient(45deg, #101014 0%, transparent 100%)"}} />
-      <Grain />
+      {/* 5-layer stack: Clean subtle cinematic grade and soft vignette without harsh flickering grain */}
+      <div style={{position: "absolute", inset: 0, pointerEvents: "none", mixBlendMode: "multiply", opacity: 0.04, background: "linear-gradient(135deg, #000 0%, transparent 100%)"}} />
       <Vignette />
     </AbsoluteFill>
   );
