@@ -400,7 +400,9 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
         "ContentVideo",
         output,
         "--concurrency=2",
-        "--gl=angle",
+        "--image-format=jpeg",
+        "--jpeg-quality=92",
+        "--chromium-options=--disable-dev-shm-usage --no-sandbox",
         "--props", str(render_dir / "script_with_timing.json"),
     ]
     if Path(chromium_path).exists():

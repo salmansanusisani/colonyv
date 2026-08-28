@@ -120,10 +120,10 @@ const BgMesh: React.FC<{ accent: string; progress?: number; chrome?: boolean }> 
       {chrome && (
         <>
           <div style={{ position: "absolute", left: 60, right: 60, top: 60, height: 4, borderRadius: 4, background: "rgba(255,255,255,0.1)" }}>
-            <div style={{ height: "100%", width: `${Math.max(4, progress * 100)}%`, background: accent, borderRadius: 4, boxShadow: `0 0 12px ${accent}` }} />
+            <div style={{ height: "100%", width: `${Math.max(4, progress * 100)}%`, background: accent, borderRadius: 4 }} />
           </div>
           <div style={{ position: "absolute", left: 60, top: 86, display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: "50%", background: accent, boxShadow: `0 0 10px ${accent}` }} />
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: accent }} />
             <span style={{ fontFamily: theme.fonts.display, fontWeight: 800, fontSize: 18, letterSpacing: 3, color: theme.colors.text }}>COLONY V</span>
           </div>
           <div style={{ position: "absolute", right: 60, top: 86, fontFamily: theme.fonts.display, fontWeight: 600, fontSize: 14, letterSpacing: 2, color: theme.colors.textMuted }}>
@@ -224,14 +224,15 @@ const AnimatedCounter: React.FC<{ target: number; prefix?: string; suffix?: stri
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const p = spring({ frame: frame - delay, fps, config: { damping: 24, stiffness: 80 } });
-  const current = interpolate(p, [0, 1], [0, target]);
+  const p = Math.max(0, Math.min(1, spring({ frame: frame - delay, fps, config: { damping: 24, stiffness: 80 } })));
+  const current = interpolate(p, [0, 1], [0, target], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const fontSize = target >= 10000 ? 88 : 120;
 
   return (
-    <div style={{ fontFamily: theme.fonts.display, fontSize: 140, fontWeight: 900, color: theme.colors.text, letterSpacing: -5, lineHeight: 1 }}>
+    <div style={{ fontFamily: theme.fonts.display, fontSize, fontWeight: 900, color: theme.colors.text, letterSpacing: -3, lineHeight: 1, whiteSpace: "nowrap" }}>
       <span style={{ color: accent }}>{prefix}</span>
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>{target % 1 === 0 ? Math.round(current) : current.toFixed(1)}</span>
-      <span style={{ color: accent, fontSize: 80, marginLeft: 8 }}>{suffix}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{target % 1 === 0 ? Math.round(current).toLocaleString() : current.toFixed(1)}</span>
+      <span style={{ color: accent, fontSize: Math.round(fontSize * 0.65), marginLeft: 8 }}>{suffix}</span>
     </div>
   );
 };
@@ -266,7 +267,7 @@ const HookScene: React.FC<{ text: string; duration: number; accent: string }> = 
               marginBottom: 36,
             }}
           >
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent, boxShadow: `0 0 10px ${accent}` }} />
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent }} />
             <span style={{ fontFamily: theme.fonts.display, fontWeight: 800, fontSize: 15, letterSpacing: 2.5, color: accent }}>BREAKING SIGNAL</span>
           </div>
         </Entrance>
@@ -305,7 +306,6 @@ const HookScene: React.FC<{ text: string; duration: number; accent: string }> = 
             height: 4,
             background: `linear-gradient(90deg, ${accent}, transparent)`,
             borderRadius: 2,
-            boxShadow: `0 0 15px ${accent}`,
           }}
         />
       </div>
@@ -499,14 +499,14 @@ const TimelineScene: React.FC<{ beat: Beat; duration: number; accent: string; in
 
         <div style={{ display: "flex", flexDirection: "column", gap: 32, position: "relative" }}>
           <div style={{ position: "absolute", left: 19, top: 20, bottom: 20, width: 2, background: "rgba(255,255,255,0.08)" }}>
-            <div style={{ width: "100%", height: `${line}%`, background: accent, boxShadow: `0 0 10px ${accent}` }} />
+            <div style={{ width: "100%", height: `${line}%`, background: accent }} />
           </div>
 
           {events.map((event, i) => {
             const p = Math.max(0, Math.min(1, spring({ frame: frame - 8 - i * 14, fps, config: theme.spring.smooth })));
             return (
               <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 28, paddingLeft: 8, opacity: p, transform: `translateY(${interpolate(p, [0, 1], [25, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px)` }}>
-                <div style={{ width: 24, height: 24, borderRadius: "50%", background: i === 0 ? accent : theme.colors.bgCard, border: `2px solid ${accent}`, boxShadow: i === 0 ? `0 0 14px ${accent}` : "none", flexShrink: 0, marginTop: 4 }} />
+                <div style={{ width: 24, height: 24, borderRadius: "50%", background: i === 0 ? accent : theme.colors.bgCard, border: `2px solid ${accent}`, flexShrink: 0, marginTop: 4 }} />
                 <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 650, lineHeight: 1.35, color: theme.colors.text }}>{event}</div>
               </div>
             );
@@ -527,7 +527,7 @@ const QuietScene: React.FC<{ beat: Beat; duration: number; accent: string }> = (
       </Sequence>
       <div style={{ position: "absolute", inset: "0 70px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
         <Entrance delay={0} distance={15}>
-          <div style={{ width: 80, height: 4, background: accent, borderRadius: 2, marginBottom: 40, boxShadow: `0 0 12px ${accent}` }} />
+          <div style={{ width: 80, height: 4, background: accent, borderRadius: 2, marginBottom: 40 }} />
         </Entrance>
         <Entrance delay={4} distance={30}>
           <div style={{ fontFamily: theme.fonts.display, fontSize: 58, lineHeight: 1.2, fontWeight: 850, letterSpacing: -2, color: theme.colors.text }}>
