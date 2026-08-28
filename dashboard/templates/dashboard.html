@@ -1372,6 +1372,8 @@ CONTROLS
     }
 
     // Poll Status
+    let statusWasComplete = false;
+
     async function pollStatus() {
         let s = null;
         try {
@@ -1455,9 +1457,14 @@ CONTROLS
             document.getElementById('resumeBtn').disabled = true;
             stopTimer();
             if (s.current_step === 'complete') {
-                toast('Pipeline completed!', 'info');
-                loadRuns();
-                loadAnalytics();
+                if (!statusWasComplete) {
+                    toast('Pipeline completed!', 'info');
+                    loadRuns();
+                    loadAnalytics();
+                    statusWasComplete = true;
+                }
+            } else {
+                statusWasComplete = false;
             }
         }
         setTimeout(pollStatus, 2000);
