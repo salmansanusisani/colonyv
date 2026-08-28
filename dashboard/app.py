@@ -341,7 +341,6 @@ async def api_agent_invoke(request: Request):
     return result
 
 
-@app.post("/api/agent/run")
 async def launch_production_run(stories: int, *, source: str = "manual") -> dict[str, Any]:
     """Start a full autonomous production run through the ADK Production Director."""
     skip_publish = False
@@ -411,6 +410,7 @@ async def launch_production_run(stories: int, *, source: str = "manual") -> dict
     return {"status": "started", "mode": "adk-production", "run_id": run_id}
 
 
+@app.post("/api/agent/run")
 async def api_agent_run(request: Request):
     """Start a full autonomous production run through the ADK Production Director."""
     global app_loop
@@ -419,10 +419,14 @@ async def api_agent_run(request: Request):
     if pipeline_state["running"]:
         return JSONResponse({"error": "Pipeline already running"}, 409)
 
-    await request.json()
-    stories = int(settings["pipeline"].get("videos_per_run", 1))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    stories = int((body and body.get("stories")) or settings["pipeline"].get("videos_per_run", 1))
 
-    return await launch_production_run(stories, source="manual")
+    result = await launch_production_run(stories, source="manual")
+    return JSONResponse(result)
 
 
 async def run_production_director(stories: int):
