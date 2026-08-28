@@ -49,8 +49,11 @@ def load_schema():
 
 def load_seen(path):
     if path.exists():
-        with open(path) as f:
-            return set(json.load(f))
+        try:
+            with open(path) as f:
+                return set(json.load(f))
+        except (json.JSONDecodeError, ValueError, OSError) as e:
+            print(f"  [warn] Corrupt seen file {path}, starting fresh: {e}", file=sys.stderr)
     return set()
 
 def get_latest_learned_signals() -> str:
@@ -94,8 +97,15 @@ def get_latest_learned_signals() -> str:
 
 def save_seen(path, seen):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(sorted(seen), f, indent=2)
+    tmp = path.with_suffix(".json.tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(sorted(seen), f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"  [warn] Failed to save seen file {path}: {e}", file=sys.stderr)
 
 
 def story_id(title, url):
@@ -165,10 +175,38 @@ Example:
                 scores_list = [scores_list]
 
             scored = []
+            seen_indices = []
             for s in scores_list:
                 if not isinstance(s, dict):
                     continue
-                idx = int(s.get("i", 0)) - 1
+                raw_i = s.get("i")
+                try:
+                    raw_idx = int(raw_i)
+                except (TypeError, ValueError):
+                    raw_idx = -1
+                if raw_idx >= 0:
+                    seen_indices.append(raw_idx)
+
+            # Detect the model's index convention: the prompt is 1-based, but
+            # some models return 0-based indices. Prefer 1-based unless the
+            # returned set is unambiguously 0-based (max == len-1 covering all).
+            n = len(entries)
+            use_zero_based = (
+                seen_indices
+                and max(seen_indices) == n - 1
+                and len({i for i in seen_indices if i < n}) == n
+            )
+
+            for s in scores_list:
+                if not isinstance(s, dict):
+                    continue
+                raw_i = s.get("i")
+                try:
+                    idx = int(raw_i)
+                except (TypeError, ValueError):
+                    idx = 0
+                if not use_zero_based:
+                    idx -= 1
                 if 0 <= idx < len(entries):
                     e = entries[idx]
                     scored.append({

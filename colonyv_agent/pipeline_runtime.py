@@ -26,7 +26,7 @@ output_dir: Path | None = None
 skip_publish: bool = False
 _paused: bool = False
 _stop_requested: bool = False
-_active_process: subprocess.Popen | None = None
+_active_processes: set[subprocess.Popen] = set()
 _pause_start: float | None = None
 _paused_total: float = 0.0
 
@@ -42,14 +42,30 @@ def _accumulate_pause() -> None:
         _pause_start = None
 
 
+def _alive() -> list[subprocess.Popen]:
+    return [p for p in list(_active_processes) if p is not None and p.poll() is None]
+
+
 def set_active_process(proc: subprocess.Popen | None) -> None:
-    global _active_process
-    _active_process = proc
+    """Register a running subprocess so pause/stop can signal it.
+
+    Multiple concurrent stages are tracked as a set so a stop or pause signals
+    every live subprocess. Teardown uses unregister_process(); passing None is
+    a legacy no-op kept for compatibility.
+    """
+    if proc is None:
+        return
+    _active_processes.add(proc)
+
+
+def unregister_process(proc: subprocess.Popen | None) -> None:
+    if proc is not None:
+        _active_processes.discard(proc)
 
 
 def configure(
     *,
-    logger: Callable[[str], None] | None = None,
+    logger: Callable[[str], str | None] | None = None,
     activity: Callable[[str, str, str], None] | None = None,
     env: dict[str, str] | None = None,
     out_dir: Path | None = None,
@@ -74,6 +90,7 @@ def configure(
         _stop_requested = False
         _accumulate_pause()
         _paused_total = 0.0
+        _active_processes.clear()
 
 
 def set_paused(flag: bool) -> None:
@@ -86,9 +103,10 @@ def set_paused(flag: bool) -> None:
         _pause_start = _monotonic()
     else:
         _accumulate_pause()
-    if _active_process is not None and _active_process.poll() is None:
+    sig = signal.SIGSTOP if _paused else signal.SIGCONT
+    for p in _alive():
         try:
-            os.killpg(_active_process.pid, signal.SIGSTOP if _paused else signal.SIGCONT)
+            os.killpg(p.pid, sig)
         except Exception:
             pass
 
@@ -118,9 +136,9 @@ def request_stop() -> None:
     _stop_requested = True
     _paused = False
     _accumulate_pause()
-    if _active_process is not None and _active_process.poll() is None:
+    for p in _alive():
         try:
-            os.killpg(_active_process.pid, signal.SIGKILL)
+            os.killpg(p.pid, signal.SIGKILL)
         except Exception:
             pass
 

@@ -42,16 +42,31 @@ def _ensure_run(run_id: str) -> Path:
 
 
 def _write(run_dir: Path, name: str, data: Any) -> None:
-    with open(run_dir / name, "w") as f:
-        json.dump(data, f, indent=2)
+    path = run_dir / name
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 def _read(run_dir: Path, name: str) -> Any | None:
     path = run_dir / name
     if not path.exists():
         return None
-    with open(path) as f:
-        return json.load(f)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
 
 
 def _parse_json_output(output: str, expect: str = "object") -> Any | None:
@@ -144,7 +159,7 @@ def run_script(
                 runtime.log(f"[{step_label}] exited {ret}")
                 return subprocess.CompletedProcess(cmd, ret, "\n".join(stdout_lines), "")
     finally:
-        runtime.set_active_process(None)
+        runtime.unregister_process(proc)
         proc.wait()
         if proc.stdout:
             proc.stdout.close()
@@ -152,7 +167,10 @@ def run_script(
 
 def discover_stories(tool_context: ToolContext) -> dict[str, Any]:
     """Scan RSS feeds, score candidates, and hand the ranked list to the director."""
-    run_id = runtime.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+    import uuid
+    run_id = runtime.run_id or (
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
+    )
     run_dir = _ensure_run(run_id)
     tool_context.state["run_id"] = run_id
     tool_context.state["run_dir"] = str(run_dir)

@@ -29,9 +29,15 @@ def cleanup_output(days: int, dry_run: bool) -> list[str]:
     for run_dir in sorted(OUTPUT_DIR.iterdir()):
         if not run_dir.is_dir():
             continue
-        # Parse run_id timestamp (format: YYYYMMDD_HHMMSS)
+        # Parse run_id timestamp: YYYYMMDD_HHMMSS or YYYYMMDD_HHMMSS_xxxx
+        # (the latter includes a uniqueness suffix). Legacy "agent-*" dirs and
+        # anything else are left untouched.
+        ts = run_dir.name
+        if ts.startswith("agent-"):
+            continue
+        dir_time = None
         try:
-            dir_time = datetime.strptime(run_dir.name, "%Y%m%d_%H%M%S")
+            dir_time = datetime.strptime(ts[:15], "%Y%m%d_%H%M%S")
         except ValueError:
             continue
         if dir_time < cutoff:

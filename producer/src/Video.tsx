@@ -87,6 +87,11 @@ interface VideoProps {
     accent_color?: string;
     suggested_visual_beats: Beat[];
   };
+  timing?: {
+    hookFrames: number;
+    outroFrames: number;
+    beats: Record<string, number>;
+  };
 }
 
 const accentFor = (text: string) => {
@@ -215,6 +220,8 @@ const RadialSpark: React.FC<{ size?: number; accent: string; delay?: number }> =
   );
 };
 
+const slugify = (name: string) => (name || "").replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "beat";
+
 // --- Component 4: Editorial Card with Ken Burns Zoom & Pan (Rule 6) ---
 const SubjectImage: React.FC<{ name: string; duration: number; available?: boolean; accent: string }> = ({ name, duration, available = true, accent }) => {
   const frame = useCurrentFrame();
@@ -244,7 +251,7 @@ const SubjectImage: React.FC<{ name: string; duration: number; available?: boole
       }}
     >
       <Img
-        src={staticFile(`images/${name}.png`)}
+        src={staticFile(`images/${slugify(name)}.png`)}
         style={{
           width: "100%",
           height: "100%",
@@ -290,7 +297,7 @@ const HookScene: React.FC<{ text: string; duration: number; accent: string }> = 
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const words = text.split(" ");
-  const exit = interpolate(frame, [duration - 10, duration], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const exit = interpolate(frame, [Math.max(0, duration - 10), duration], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   return (
     <AbsoluteFill style={{ opacity: exit }}>
@@ -519,7 +526,12 @@ const TimelineScene: React.FC<{ beat: Beat; duration: number; accent: string; in
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const events = beat.narration_text.split(/\s*\|\s*|(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
-  const line = interpolate(frame, [10, duration * 0.6], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const line = interpolate(
+    frame,
+    [Math.min(10, Math.max(0, duration - 1)), Math.max(1, duration * 0.6)],
+    [0, 100],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
 
   return (
     <AbsoluteFill>
@@ -647,23 +659,26 @@ const Vignette: React.FC = () => (
   <AbsoluteFill style={{ pointerEvents: "none", background: "radial-gradient(circle at center, transparent 40%, rgba(10,10,15,0.3) 120%)" }} />
 );
 
-export const ContentVideo: React.FC<VideoProps> = ({ script }) => {
+export const ContentVideo: React.FC<VideoProps> = ({ script, timing }) => {
+  const runBeats = timing?.beats || beats;
+  const runHookFrames = timing?.hookFrames ?? hookFrames;
+  const runOutroFrames = timing?.outroFrames ?? outroFrames;
   const allText = `${script?.hook || ""} ${script?.body || ""}`;
   const accent = script?.accent_color || accentFor(allText);
-  const beatKeys = Object.keys(beats || {});
-  const bodyFrames = Object.values(beats || {}).reduce((sum, value) => sum + value, 0);
-  const totalFrames = hookFrames + bodyFrames + outroFrames;
-  let cursor = hookFrames;
+  const beatKeys = Object.keys(runBeats || {});
+  const bodyFrames = Object.values(runBeats || {}).reduce((sum, value) => sum + value, 0);
+  const totalFrames = runHookFrames + bodyFrames + runOutroFrames;
+  let cursor = runHookFrames;
 
   const visualBeats = script?.suggested_visual_beats || [];
 
   return (
     <AbsoluteFill style={{ background: theme.colors.bg }}>
-      <Sequence from={0} durationInFrames={hookFrames}>
-        <HookScene text={script?.hook || ""} duration={hookFrames} accent={accent} />
+      <Sequence from={0} durationInFrames={runHookFrames}>
+        <HookScene text={script?.hook || ""} duration={runHookFrames} accent={accent} />
       </Sequence>
       {beatKeys.map((name, index) => {
-        const duration = (beats && beats[name]) || 90;
+        const duration = (runBeats && runBeats[name]) || 90;
         const from = cursor;
         cursor += duration;
         const beat = visualBeats.find((item) => item.name === name) || visualBeats[index] || { name, narration_text: "" };
@@ -686,8 +701,8 @@ export const ContentVideo: React.FC<VideoProps> = ({ script }) => {
           </Sequence>
         );
       })}
-      <Sequence from={totalFrames - outroFrames} durationInFrames={outroFrames}>
-        <OutroScene text={script?.cta || ""} duration={outroFrames} accent={accent} />
+      <Sequence from={totalFrames - runOutroFrames} durationInFrames={runOutroFrames}>
+        <OutroScene text={script?.cta || ""} duration={runOutroFrames} accent={accent} />
       </Sequence>
 
       {/* Topmost Cinematic Vignette Layer */}

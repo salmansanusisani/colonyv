@@ -150,8 +150,12 @@ def persist_pipeline_state(force: bool = False) -> None:
 
 def save_settings() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_PATH, "w") as f:
+    tmp = SETTINGS_PATH.with_suffix(".json.tmp")
+    with open(tmp, "w") as f:
         json.dump(settings, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, SETTINGS_PATH)
 
 app = FastAPI(title="COLONY — Autonomous Media Orchestrator")
 app.mount("/static", StaticFiles(directory=str(DASHBOARD_DIR / "static")), name="static")
@@ -343,6 +347,7 @@ async def launch_production_run(stories: int, *, source: str = "manual") -> dict
     skip_publish = False
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = f"{run_id}_{uuid.uuid4().hex[:4]}"
     output_dir = OUTPUT_DIR / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -474,7 +479,7 @@ async def handle_stage_message(run_id: str, stage: str, story_index: int, attemp
             env=dict(os.environ),
             out_dir=OUTPUT_DIR,
             run=run_id,
-            skip=bool(settings["pipeline"].get("skip_publish", True)),
+            skip=False,
         )
 
     state = dict(pipeline_state.get("stage_state") or {})
@@ -516,7 +521,21 @@ def runtime_state_run_id(run_id: str) -> str:
 
 @app.post("/api/pubsub/run-stage")
 async def api_pubsub_run_stage(request: Request):
-    """Pub/Sub push webhook: executes one pipeline stage message."""
+    """Pub/Sub push webhook: executes one pipeline stage message.
+
+    Authorization: when COLONYV_PUBSUB_TOKEN is set, the request must carry it
+    as a bearer token (matching the push subscription's auth token). Without a
+    configured token the endpoint refuses requests when running in a deployed
+    (non-local) environment to avoid unauthenticated pipeline execution.
+    """
+    expected = os.environ.get("COLONYV_PUBSUB_TOKEN", "")
+    if expected:
+        auth = request.headers.get("Authorization", "")
+        provided = auth[7:].strip() if auth.lower().startswith("bearer ") else auth
+        if provided != expected:
+            return JSONResponse({"error": "unauthorized"}, 401)
+    elif os.environ.get("K_SERVICE"):  # deployed Cloud Run without a token
+        return JSONResponse({"error": "webhook auth not configured"}, 503)
     try:
         payload = await request.json()
         message = payload.get("message", {})
@@ -569,10 +588,11 @@ async def api_runs(limit: int = 20):
 @app.get("/api/run/{run_id}")
 async def api_run_detail(run_id: str):
     import re
-    if not re.match(r"^\d{8}_\d{6}$", run_id):
-        return JSONResponse({"error": "invalid run_id format"}, 400)
+    # Allow the timestamp run id format and the legacy "agent-<timestamp>" dirs.
+    if not re.match(r"^[\w.-]+$", run_id) or ".." in run_id:
+        return JSONResponse({"error": "invalid run_id"}, 400)
     run_dir = OUTPUT_DIR / run_id
-    if not run_dir.exists():
+    if not run_dir.is_dir():
         return JSONResponse({"error": "not found"}, 404)
 
     stories = []
@@ -601,20 +621,29 @@ async def api_pipeline_start(request: Request):
     if pipeline_state["running"]:
         return JSONResponse({"error": "Pipeline already running"}, 409)
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
     stories = int(settings["pipeline"].get("videos_per_run", 1))
-    skip_publish = bool(settings["pipeline"].get("skip_publish", True))
+    # Dashboard always sends skip_publish:false; publishing is an invariant.
+    # Never trust a stray truthy string from settings ("true" == True bug).
+    skip_publish = False
+    if isinstance(body, dict) and "skip_publish" in body:
+        skip_publish = bool(body.get("skip_publish")) and body.get("skip_publish") not in (False, 0)
 
     pipeline_state.update({
         "running": True,
         "paused": False,
-        "run_id": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "run_id": f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}",
         "current_step": "starting",
         "progress": 0,
         "logs": [],
         "content_count": stories,
         "content_done": 0,
         "start_time": time.time(),
+        "paused_duration": 0.0,
+        "pause_start": None,
     })
     reset_agent_activity()
     persist_pipeline_state()
@@ -671,18 +700,23 @@ async def api_pipeline_stop():
     pipeline_runtime.request_stop()
     proc = pipeline_state.get("current_process")
     if proc is not None and proc.poll() is None:
-        try:
-            os.killpg(proc.pid, signal.SIGCONT)
-            os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
+        loop = asyncio.get_running_loop()
+
+        def _teardown():
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                os.killpg(proc.pid, signal.SIGCONT)
+                os.killpg(proc.pid, signal.SIGTERM)
             except ProcessLookupError:
-                proc.kill()
+                proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    proc.kill()
+
+        await loop.run_in_executor(None, _teardown)
     return {"status": "stopped"}
 
 
@@ -735,9 +769,13 @@ async def api_models(provider: str = ""):
     try:
         import requests
         if provider == "gemini" and key:
-            response = requests.get(
-                "https://generativelanguage.googleapis.com/v1beta/models",
-                params={"key": key}, timeout=10,
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.get(
+                    "https://generativelanguage.googleapis.com/v1beta/models",
+                    params={"key": key}, timeout=10,
+                ),
             )
             response.raise_for_status()
             discovered = [
@@ -939,10 +977,9 @@ async def api_youtube_auth():
     if not secret_path.exists():
         return JSONResponse({"error": "No client_secret.json found. Upload it first."}, 400)
 
-    # Remove old token with outdated scopes if present
+    # Keep any existing token until re-auth completes, so an aborted or
+    # failed flow never leaves the service without working credentials.
     token_path = AGENTS_DIR / "publisher" / "youtube_token.json"
-    if token_path.exists():
-        token_path.unlink()
 
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
@@ -971,6 +1008,9 @@ async def api_youtube_callback(code: str = None, state: str = None):
     if not code:
         return HTMLResponse("<h1>Auth failed - no code received</h1>")
 
+    if state and app.state.oauth_state and state != app.state.oauth_state:
+        return HTMLResponse("<h1>Auth failed - state mismatch. Please try again.</h1>")
+
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
 
@@ -990,6 +1030,9 @@ async def api_youtube_callback(code: str = None, state: str = None):
         token_path.parent.mkdir(parents=True, exist_ok=True)
         with open(token_path, "w") as f:
             f.write(creds.to_json())
+
+        app.state.oauth_flow = None
+        app.state.oauth_state = None
 
         return HTMLResponse("""
             <!DOCTYPE html>
@@ -1648,16 +1691,72 @@ async def api_notifications_set(request: Request):
     return {"status": "ok"}
 
 
+# --- RSS Feeds ---
+
+def _load_feeds() -> list[dict]:
+    if FEEDS_PATH.exists():
+        try:
+            with open(FEEDS_PATH) as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+        except (json.JSONDecodeError, OSError, ValueError):
+            pass
+    return list(DEFAULT_FEEDS)
+
+
+def _save_feeds(feeds: list[dict]) -> None:
+    FEEDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = FEEDS_PATH.with_suffix(".json.tmp")
+    with open(tmp, "w") as f:
+        json.dump(feeds, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, FEEDS_PATH)
+
+
+@app.get("/api/feeds")
+async def api_feeds_get():
+    return {"feeds": _load_feeds()}
+
+
+@app.post("/api/feeds")
+async def api_feeds_set(request: Request):
+    body = await request.json() or {}
+    feeds = body.get("feeds")
+    if not isinstance(feeds, list):
+        return JSONResponse({"error": "feeds must be a list"}, 400)
+    cleaned = []
+    for f in feeds:
+        if not isinstance(f, dict):
+            continue
+        url = str(f.get("url", "")).strip()
+        category = str(f.get("category", "tech")).strip() or "tech"
+        if not url:
+            continue
+        cleaned.append({
+            "url": url,
+            "category": category,
+            "enabled": False if f.get("enabled") in (False, "false", 0) else True,
+        })
+    _save_feeds(cleaned)
+    return {"feeds": cleaned}
+
+
 @app.post("/api/notifications/test")
 async def api_notifications_test():
     sent = []
     if notification_config["slack_webhook"]:
         try:
             import requests
-            resp = requests.post(
-                notification_config["slack_webhook"],
-                json={"text": "Content Ops Dashboard: Test notification"},
-                timeout=10,
+            loop = asyncio.get_running_loop()
+            resp = await loop.run_in_executor(
+                None,
+                lambda: requests.post(
+                    notification_config["slack_webhook"],
+                    json={"text": "Content Ops Dashboard: Test notification"},
+                    timeout=10,
+                ),
             )
             sent.append("slack")
         except Exception as e:
@@ -1670,16 +1769,18 @@ async def api_notifications_test():
 
 
 async def send_notification(message: str):
-    if notification_config["slack_webhook"]:
-        try:
-            import requests
-            requests.post(
-                notification_config["slack_webhook"],
-                json={"text": f"Content Ops: {message}"},
-                timeout=10,
-            )
-        except Exception:
-            pass
+    if not notification_config["slack_webhook"]:
+        return
+    webhook = notification_config["slack_webhook"]
+    try:
+        import requests
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: requests.post(webhook, json={"text": f"Content Ops: {message}"}, timeout=10),
+        )
+    except Exception:
+        pass
 
 
 # --- Feedback Loop ---

@@ -1702,6 +1702,71 @@ CONTROLS
 
     // Feeds
     let feedData = [];
+
+    function renderFeeds() {
+        const list = document.getElementById('feedsList');
+        if (!list) return;
+        list.innerHTML = '';
+        feedData.forEach((feed, i) => {
+            const row = document.createElement('div');
+            row.className = 'settings-row';
+            row.style.alignItems = 'center';
+            row.innerHTML = `
+                <div style="flex:1">
+                    <input class="apple-input" type="text" value="${esc(feed.url)}" data-feed="url" data-idx="${i}" style="margin-bottom:6px;" placeholder="Feed URL" />
+                    <select class="apple-select" data-feed="category" data-idx="${i}">
+                        <option value="ai" ${feed.category==='ai'?'selected':''}>AI</option>
+                        <option value="tech" ${feed.category==='tech'?'selected':''}>Tech</option>
+                        <option value="crypto" ${feed.category==='crypto'?'selected':''}>Crypto</option>
+                    </select>
+                    <label style="margin-left:10px; font-size:12px; color:var(--text-secondary);">
+                        <input type="checkbox" data-feed="enabled" data-idx="${i}" ${feed.enabled===false?'':'checked'} /> Enabled
+                    </label>
+                </div>
+                <button class="btn-apple btn-apple-danger btn-sm" onclick="removeFeed(${i})">Remove</button>
+            `;
+            list.appendChild(row);
+        });
+    }
+
+    async function loadFeeds() {
+        try {
+            const data = await fetchJson('/api/feeds');
+            feedData = (data.feeds || []).map(f => ({ url: f.url || '', category: f.category || 'tech', enabled: f.enabled !== false }));
+            renderFeeds();
+        } catch (e) {
+            console.warn('loadFeeds failed', e);
+            feedData = [];
+            renderFeeds();
+        }
+    }
+
+    function addFeed() {
+        feedData.push({ url: '', category: 'tech', enabled: true });
+        renderFeeds();
+    }
+
+    function removeFeed(i) {
+        feedData.splice(i, 1);
+        renderFeeds();
+    }
+
+    async function saveFeeds() {
+        document.querySelectorAll('#feedsList [data-feed]').forEach(el => {
+            const idx = Number(el.dataset.idx);
+            const field = el.dataset.feed;
+            if (feedData[idx]) {
+                if (field === 'enabled') feedData[idx].enabled = el.checked;
+                else feedData[idx][field] = el.value;
+            }
+        });
+        await fetch('/api/feeds', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ feeds: feedData }),
+        });
+        toast('Feeds saved', 'info');
+    }
+
     // Notifications
     async function saveNotifications() {
         const body = { slack_webhook: document.getElementById('slackWebhook').value, email_to: document.getElementById('emailTo').value };

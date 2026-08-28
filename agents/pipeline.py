@@ -83,8 +83,10 @@ def run_research(story: dict, output_dir: Path) -> dict | None:
     log("RESEARCH", f"Researching: {title}...")
 
     story_path = output_dir / f"{story_id}_monitor.json"
-    with open(story_path, "w") as f:
+    tmp_path = story_path.with_suffix(".json.tmp")
+    with open(tmp_path, "w") as f:
         json.dump(story, f, indent=2)
+    os.replace(tmp_path, story_path)
 
     py_exec = get_python_exec()
     result = subprocess.run(

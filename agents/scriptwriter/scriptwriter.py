@@ -73,10 +73,20 @@ def sanitize_script_output(script: dict) -> dict:
 
     valid_beat_types = {"stat_reveal", "diagram", "kinetic_text", "image", "custom"}
     sanitized_beats = []
+    seen_names = set()
     for i, b in enumerate(beats):
         if not isinstance(b, dict):
             b = {}
         name = str(b.get("name") or f"beat_{i+1:02d}")
+        if not name:
+            name = f"beat_{i+1:02d}"
+        if name in seen_names:
+            base = name
+            counter = 2
+            while name in seen_names:
+                name = f"{base}_{counter}"
+                counter += 1
+        seen_names.add(name)
         text = str(b.get("narration_text", ""))
         beat_type = str(b.get("beat_type", "custom")).replace("-", "_")
         if beat_type not in valid_beat_types:

@@ -35,6 +35,12 @@ PUBLIC_DIR = PRODUCER_DIR / "public"
 FPS = 30
 SAMPLE_RATE = 44100
 
+
+def image_stem(name: str) -> str:
+    """Filesystem-safe slug for a beat name, used for image filenames."""
+    stem = re.sub(r"[^A-Za-z0-9_]+", "_", (name or "").strip()).strip("_") or "beat"
+    return stem
+
 VOICE = "en-US-AndrewNeural"
 
 
@@ -68,7 +74,7 @@ async def generate_tts(text: str, out_path: Path) -> None:
     await communicate.save(str(out_path))
 
 
-def measure_duration_seconds(path: Path) -> float:
+def measure_duration_seconds(path: Path) -> float | None:
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -237,7 +243,8 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
     for i, beat in enumerate(beats_data):
         if beat.get("visual_style"):
             continue
-        if beat.get("asset_available") or beat.get("image_url"):
+        _img = beat.get("asset_source_url") or beat.get("image_url")
+        if beat.get("asset_available") or _img:
             beat["visual_style"] = "image_led"
         elif beat.get("beat_type") == "stat_reveal":
             beat["visual_style"] = "stat_led"
@@ -306,17 +313,23 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
     if cta_s is None:
         cta_s = len(script_data["cta"].split()) / wps
 
-    hook_frames = round(hook_s * FPS)
-    outro_frames = round(cta_s * FPS)
+    hook_frames = max(1, round(hook_s * FPS))
+    outro_frames = max(1, round(cta_s * FPS))
 
     print(f"  hook:  {hook_s:.2f}s -> {hook_frames}f")
     print(f"  outro: {cta_s:.2f}s -> {outro_frames}f")
 
     # --- 2. Convert each real beat duration into frames ---
-    beat_frames = {
-        beat["name"]: max(1, round(beat_seconds[i] * FPS))
-        for i, beat in enumerate(beats_data)
-    }
+    # Duplicate beat names would silently collide in the beats dict; they are
+    # de-duplicated upstream (scriptwriter), but guard defensively.
+    beat_frames = {}
+    name_counts = {}
+    for i, beat in enumerate(beats_data):
+        name = beat["name"]
+        if name in name_counts:
+            raise RuntimeError(f"Duplicate beat name {name!r} in script")
+        name_counts[name] = True
+        beat_frames[name] = max(1, round(beat_seconds[i] * FPS))
 
     print("  beat split:")
     for k, f in beat_frames.items():
@@ -330,8 +343,8 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
     print("[3/4] Generating placeholder images...")
     asset_manifest = []
     for beat in beats_data:
-        image_url = beat.get("asset_source_url", "")
-        image_path = images_dir / f"{beat['name']}.png"
+        image_url = beat.get("asset_source_url") or beat.get("image_url") or ""
+        image_path = images_dir / f"{image_stem(beat['name'])}.png"
         available = bool(image_url and download_editorial_asset(image_url, image_path, beat.get("asset_type", "article_image")))
         beat["asset_available"] = available
         if available:
@@ -381,8 +394,10 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
         if img_path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
             shutil.copy2(str(img_path), str(PUBLIC_DIR / "images" / img_path.name))
 
-    # Save script with timing for reference
-    script_with_timing = {"script": script_data, "_timing": timing}
+    # Save script with timing for reference; expose timing as a top-level
+    # prop so each run's render is self-contained (no cross-run coupling
+    # through the module-scope timing.json import).
+    script_with_timing = {"script": script_data, "timing": timing, "_timing": timing}
     (render_dir / "script_with_timing.json").write_text(json.dumps(script_with_timing, indent=2))
 
     # --- 7. Remotion render ---
@@ -402,6 +417,8 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
         "--concurrency=2",
         "--image-format=jpeg",
         "--jpeg-quality=92",
+        "--gl", "angle",
+        "--no-sandbox",
         "--chromium-options=--disable-dev-shm-usage --no-sandbox",
         "--props", str(render_dir / "script_with_timing.json"),
     ]

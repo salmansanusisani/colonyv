@@ -371,9 +371,16 @@ def sanitize_research_output(analysis: dict, story_id: str, extracted: list[dict
     sanitized_claims = []
     for c in raw_claims:
         if isinstance(c, dict):
+            raw_index = c.get("source_index", 0)
+            source_index = 0
+            try:
+                source_index = int(raw_index)
+            except (TypeError, ValueError):
+                if isinstance(raw_index, str) and raw_index.isdigit():
+                    source_index = int(raw_index)
             sanitized_claims.append({
                 "text": str(c.get("text", "")),
-                "source_index": int(c.get("source_index", 0)),
+                "source_index": source_index,
                 "verified": _as_bool(c.get("verified"), False),
             })
         elif isinstance(c, str):
@@ -407,7 +414,7 @@ def sanitize_research_output(analysis: dict, story_id: str, extracted: list[dict
     if not primary_url:
         primary_url = "https://example.com"
 
-    return {
+    output = {
         "story_id": story_id,
         "summary": str(analysis.get("summary", "")),
         "claims": sanitized_claims,
@@ -423,15 +430,15 @@ def sanitize_research_output(analysis: dict, story_id: str, extracted: list[dict
         "contradictions": sanitized_contradictions,
         "confidence": conf,
         "recommended_angle": str(analysis.get("recommended_angle", "")),
-        "what_is_confirmed": [str(x) for x in analysis.get("what_is_confirmed", [])],
-        "what_is_uncertain": [str(x) for x in analysis.get("what_is_uncertain", [])],
+        "what_is_confirmed": [str(x) for x in (analysis.get("what_is_confirmed") or [])],
+        "what_is_uncertain": [str(x) for x in (analysis.get("what_is_uncertain") or [])],
         "publication_date": pub_date,
         "primary_source": str(primary_url),
-        "secondary_sources": [str(x) for x in analysis.get("secondary_sources", [])],
-        "entities": [str(x) for x in analysis.get("entities", []) if x],
+        "secondary_sources": [str(x) for x in (analysis.get("secondary_sources") or [])],
+        "entities": [str(x) for x in (analysis.get("entities") or []) if x],
         "editorial_assets": [
             {key: value for key, value in asset.items() if value not in (None, "")}
-            for asset in analysis.get("editorial_assets", [])
+            for asset in (analysis.get("editorial_assets") or [])
             if isinstance(asset, dict) and asset.get("url")
         ],
     }
