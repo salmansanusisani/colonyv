@@ -304,7 +304,7 @@ def main():
     entries = fetch_entries(feeds, max_per_feed=50)
     print(f"  Fetched {len(entries)} unique entries")
 
-    new_entries = [e for e in entries if story_id(e["title"], e["url"]) not in seen][:20]
+    new_entries = [e for e in entries if story_id(e["title"], e["url"]) not in seen][:args.top]
     print(f"  {len(new_entries)} new stories (after dedup)")
 
     if not new_entries:
