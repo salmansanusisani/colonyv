@@ -430,6 +430,13 @@ async def run_production_director(stories: int):
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
         persist_pipeline_state(force=True)
+        
+        if scheduler_config.get("enabled") and scheduler_config.get("next_run"):
+            try:
+                dt = datetime.fromisoformat(scheduler_config["next_run"])
+                log(f"Agent entering standby. Next scheduled run at {dt.strftime('%I:%M %p on %b %d')}.")
+            except Exception:
+                log("Agent entering standby until next scheduled run.")
 
 
 async def handle_stage_message(run_id: str, stage: str, story_index: int, attempt: int) -> None:
@@ -524,7 +531,7 @@ async def api_runs(limit: int = 20):
             runs.append({
                 "run_id": run_dir.name,
                 "timestamp": run_dir.name,
-                "stories": len(monitors),
+                "content": len(monitors),
                 "researched": len(researches),
                 "scripted": len(scripts),
                 "rendered": len(mp4s),
@@ -562,7 +569,7 @@ async def api_run_detail(run_id: str):
         )
         stories.append(story)
 
-    return {"run_id": run_id, "stories": stories}
+    return {"run_id": run_id, "content": stories}
 
 
 @app.post("/api/pipeline/start")
@@ -729,19 +736,19 @@ async def api_analytics():
 
             runs.append({
                 "date": run_dir.name[:8],
-                "stories": len(monitors),
+                "content": len(monitors),
                 "rendered": len(mp4s),
                 "size_mb": round(total_size / 1024 / 1024, 1),
                 "topics": topics,
             })
 
-    total_stories = sum(r["stories"] for r in runs)
+    total_content = sum(r["content"] for r in runs)
     total_rendered = sum(r["rendered"] for r in runs)
     total_size = sum(r["size_mb"] for r in runs)
 
     return {
         "total_runs": len(runs),
-        "total_stories": total_stories,
+        "total_content": total_content,
         "total_rendered": total_rendered,
         "total_size_mb": total_size,
         "runs": runs[-30:],
