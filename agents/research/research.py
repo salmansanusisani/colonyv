@@ -352,6 +352,20 @@ def validate_output(data: dict, schema: dict) -> bool:
         return False
 
 
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1", "yes", "y", "on"):
+            return True
+        if text in ("false", "0", "no", "n", "off", ""):
+            return False
+    return default
+
+
 def sanitize_research_output(analysis: dict, story_id: str, extracted: list[dict], sources: list[dict]) -> dict:
     raw_claims = analysis.get("claims", [])
     sanitized_claims = []
@@ -360,7 +374,7 @@ def sanitize_research_output(analysis: dict, story_id: str, extracted: list[dict
             sanitized_claims.append({
                 "text": str(c.get("text", "")),
                 "source_index": int(c.get("source_index", 0)),
-                "verified": bool(c.get("verified", False)),
+                "verified": _as_bool(c.get("verified"), False),
             })
         elif isinstance(c, str):
             sanitized_claims.append({

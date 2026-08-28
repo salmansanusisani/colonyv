@@ -28,6 +28,54 @@ type Beat = {
   asset_available?: boolean;
   image_treatment?: string;
   visual_style?: "editorial" | "image_led" | "stat_led" | "diagram" | "timeline" | "quiet";
+  beat_scene_stat?: string;
+  beat_scene_headline?: string;
+};
+
+type ParsedStat = {
+  prefix: string;
+  numVal: number;
+  suffix: string;
+  narrationRemainder: string;
+};
+
+const STAT_RE = /(\$)?(\d+[\d,.]*)(\s*(?:million|billion|trillion|k|M|B|%|x|×))?/gi;
+
+const parseStatValue = (beat: Beat, stat?: string): ParsedStat | null => {
+  const parseExplicit = (raw: string, narration: string): ParsedStat | null => {
+    const m = raw.match(/^(\D*?)([0-9][\d,.]*)(.*)$/);
+    if (!m) return null;
+    const numVal = parseFloat(m[2].replace(/,/g, ""));
+    if (Number.isNaN(numVal)) return null;
+    const unit = (m[3] || "").trim().toLowerCase().match(/^(million|billion|trillion|k|m|b|%|x|×)$/);
+    return {
+      prefix: m[1] || "",
+      numVal,
+      suffix: unit ? (m[3] || "").trim() : "",
+      narrationRemainder: narration.replace(raw, "").trim(),
+    };
+  };
+
+  if (stat && stat.trim()) {
+    const parsed = parseExplicit(stat.trim(), beat.narration_text || "");
+    if (parsed) return parsed;
+  }
+
+  const narration = beat.narration_text || "";
+  let best: ParsedStat | null = null;
+  for (const m of narration.matchAll(STAT_RE)) {
+    const prefix = m[1] || "";
+    const rawDigit = m[2] || "";
+    const suffix = (m[3] || "").trim();
+    const numVal = parseFloat(rawDigit.replace(/,/g, ""));
+    if (Number.isNaN(numVal)) continue;
+    const digits = rawDigit.replace(/[,.]/g, "");
+    const isBareYear = !prefix && !suffix && /^\d{4}$/.test(digits) && numVal >= 1900 && numVal <= 2999;
+    if (isBareYear) continue;
+    best = { prefix, numVal, suffix, narrationRemainder: narration.replace(m[0], "").trim() };
+    if (prefix === "$") break;
+  }
+  return best;
 };
 
 interface VideoProps {
@@ -377,12 +425,8 @@ const StatScene: React.FC<{ beat: Beat; duration: number; accent: string; index:
   total,
 }) => {
   const frame = useCurrentFrame();
-  const match = (beat.narration_text || "").match(/(\$)?(\d+[\d,.]*)(\s*(?:million|billion|trillion|M|B|%))?/i);
-  const prefix = match?.[1] || "";
-  const numStr = match?.[2] ? match[2].replace(/,/g, "") : "100";
-  const suffix = match?.[3] || "%";
-  const numVal = parseFloat(numStr) || 100;
-  const remaining = beat.narration_text ? beat.narration_text.replace(match?.[0] || "", "").trim() : "";
+  const stat = parseStatValue(beat, beat.beat_scene_stat);
+  const headline = beat.beat_scene_headline || "";
 
   return (
     <AbsoluteFill>
@@ -395,15 +439,17 @@ const StatScene: React.FC<{ beat: Beat; duration: number; accent: string; index:
           </div>
         </Entrance>
 
-        <Entrance delay={4} distance={30}>
-          <div style={{ background: theme.colors.bgCard, padding: "36px 44px", borderRadius: 32, border: `1px solid ${accent}44`, boxShadow: `0 16px 40px rgba(0,0,0,0.5)`, marginBottom: 36 }}>
-            <AnimatedCounter target={numVal} prefix={prefix} suffix={suffix} accent={accent} delay={6} />
-          </div>
-        </Entrance>
+        {stat && (
+          <Entrance delay={4} distance={30}>
+            <div style={{ background: theme.colors.bgCard, padding: "36px 44px", borderRadius: 32, border: `1px solid ${accent}44`, boxShadow: `0 16px 40px rgba(0,0,0,0.5)`, marginBottom: 36 }}>
+              <AnimatedCounter target={stat.numVal} prefix={stat.prefix} suffix={stat.suffix} accent={accent} delay={6} />
+            </div>
+          </Entrance>
+        )}
 
         <Entrance delay={14} distance={25}>
           <div style={{ fontFamily: theme.fonts.display, fontSize: 38, lineHeight: 1.35, fontWeight: 600, color: theme.colors.text, maxWidth: 900 }}>
-            {remaining}
+            {headline || stat?.narrationRemainder || beat.narration_text}
           </div>
         </Entrance>
       </div>

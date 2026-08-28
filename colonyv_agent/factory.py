@@ -145,6 +145,11 @@ def run_factory(stories: int) -> dict[str, Any]:
             return {"stopped": True, "stories_produced": produced,
                     "run_id": ctx.state.get("run_id")}
 
+        if not runtime.checkpoint(f"content '{story['title'][:40]}' ready for publication"):
+            runtime.activity("autonomous", "stopped", "Run stopped by operator before publishing")
+            return {"stopped": True, "stories_produced": produced,
+                    "run_id": ctx.state.get("run_id")}
+
         publication = evaluate_publication_gate(
             confidence=(research.get("confidence") or "low"),
             unresolved_contradictions=int(research.get("contradictions", 0)),
@@ -154,6 +159,10 @@ def run_factory(stories: int) -> dict[str, Any]:
         )
         verify_attempt = 1
         while publication["decision"] != "publish" and verify_attempt < MAX_VERIFY_ATTEMPTS:
+            if not runtime.checkpoint(f"re-verifying content '{story['title'][:40]}'"):
+                runtime.activity("autonomous", "stopped", "Run stopped by operator")
+                return {"stopped": True, "stories_produced": produced,
+                        "run_id": ctx.state.get("run_id")}
             _policy(publication)
             verify_attempt += 1
             runtime.log(
@@ -177,6 +186,10 @@ def run_factory(stories: int) -> dict[str, Any]:
                 "Verification exhausted for candidates; publishing best available",
             )
         for upload_attempt in range(1, 4):
+            if not runtime.checkpoint(f"upload attempt {upload_attempt}/3"):
+                runtime.activity("autonomous", "stopped", "Run stopped by operator before upload")
+                return {"stopped": True, "stories_produced": produced,
+                        "run_id": ctx.state.get("run_id")}
             upload = publish_to_youtube(ctx)
             if upload.get("skipped"):
                 runtime.log(f"[publish] skipping upload ({upload.get('reason')})")

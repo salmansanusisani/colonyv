@@ -14,3 +14,7 @@ agents/publisher/youtube_token.json
 *.mp4
 .env
 config/settings.json
+producer/dist/
+*.log
+test_download.py
+test_out.jpg

@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,9 @@ def _parse_json_output(output: str, expect: str = "object") -> Any | None:
 def run_script(
     cmd: list[str], *, cwd: str, timeout: int, step_label: str
 ) -> subprocess.CompletedProcess:
+    if runtime.is_stop_requested():
+        runtime.log(f"[{step_label}] skipped (stop requested)")
+        return subprocess.CompletedProcess(cmd, -15, "", "")
     runtime.log(f"[{step_label}] starting: {' '.join(cmd)}")
     proc = subprocess.Popen(
         cmd,
@@ -113,9 +117,11 @@ def run_script(
     runtime.set_active_process(proc)
     stdout_lines: list[str] = []
     try:
-        start = datetime.now()
+        start = time.monotonic()
+        paused_before = runtime.paused_elapsed()
+        paused_during = lambda: runtime.paused_elapsed() - paused_before
         while True:
-            elapsed = (datetime.now() - start).total_seconds()
+            elapsed = (time.monotonic() - start) - paused_during()
             if elapsed > timeout:
                 os.killpg(proc.pid, 9) if hasattr(os, "killpg") else proc.kill()
                 proc.wait()

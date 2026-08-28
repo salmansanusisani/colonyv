@@ -16,6 +16,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import jsonschema
 
@@ -161,6 +162,20 @@ def validate_output(data: dict, schema: dict) -> bool:
         return False
 
 
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1", "yes", "y", "on"):
+            return True
+        if text in ("false", "0", "no", "n", "off", ""):
+            return False
+    return default
+
+
 def sanitize_analyst_output(analysis: dict, run_id: str, stories_count: int) -> dict:
     if not isinstance(analysis, dict):
         analysis = {}
@@ -184,7 +199,7 @@ def sanitize_analyst_output(analysis: dict, run_id: str, stories_count: int) -> 
         if conf not in valid_confidences:
             conf = "medium"
 
-        actionable = bool(sig.get("actionable", True))
+        actionable = _as_bool(sig.get("actionable"), True)
         desc = str(sig.get("description", "Learned signal from run."))
 
         sig_obj = {

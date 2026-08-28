@@ -27,6 +27,19 @@ skip_publish: bool = False
 _paused: bool = False
 _stop_requested: bool = False
 _active_process: subprocess.Popen | None = None
+_pause_start: float | None = None
+_paused_total: float = 0.0
+
+
+def _monotonic() -> float:
+    return time.monotonic()
+
+
+def _accumulate_pause() -> None:
+    global _paused_total, _pause_start
+    if _pause_start is not None:
+        _paused_total += _monotonic() - _pause_start
+        _pause_start = None
 
 
 def set_active_process(proc: subprocess.Popen | None) -> None:
@@ -44,7 +57,7 @@ def configure(
     skip: bool = False,
     reset_controls: bool = True,
 ) -> None:
-    global _log_fn, _activity_fn, env_overrides, output_dir, run_id, skip_publish, _paused, _stop_requested
+    global _log_fn, _activity_fn, env_overrides, output_dir, run_id, skip_publish, _paused, _stop_requested, _paused_total
     if logger is not None:
         _log_fn = logger
     if activity is not None:
@@ -59,16 +72,33 @@ def configure(
     if reset_controls:
         _paused = False
         _stop_requested = False
+        _accumulate_pause()
+        _paused_total = 0.0
 
 
 def set_paused(flag: bool) -> None:
-    global _paused
-    _paused = bool(flag)
+    global _paused, _pause_start
+    flag = bool(flag)
+    if flag == _paused:
+        return
+    _paused = flag
+    if flag:
+        _pause_start = _monotonic()
+    else:
+        _accumulate_pause()
     if _active_process is not None and _active_process.poll() is None:
         try:
             os.killpg(_active_process.pid, signal.SIGSTOP if _paused else signal.SIGCONT)
         except Exception:
             pass
+
+
+def paused_elapsed() -> float:
+    """Total wall-clock seconds the run has spent paused (incl. ongoing pause)."""
+    total = _paused_total
+    if _paused and _pause_start is not None:
+        total += _monotonic() - _pause_start
+    return total
 
 
 def log(message: str) -> None:
@@ -87,6 +117,7 @@ def request_stop() -> None:
     global _stop_requested, _paused
     _stop_requested = True
     _paused = False
+    _accumulate_pause()
     if _active_process is not None and _active_process.poll() is None:
         try:
             os.killpg(_active_process.pid, signal.SIGKILL)

@@ -22,6 +22,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -337,16 +338,8 @@ async def api_agent_invoke(request: Request):
 
 
 @app.post("/api/agent/run")
-async def api_agent_run(request: Request):
+async def launch_production_run(stories: int, *, source: str = "manual") -> dict[str, Any]:
     """Start a full autonomous production run through the ADK Production Director."""
-    global app_loop
-    app_loop = asyncio.get_running_loop()
-
-    if pipeline_state["running"]:
-        return JSONResponse({"error": "Pipeline already running"}, 409)
-
-    body = await request.json()
-    stories = int(settings["pipeline"].get("videos_per_run", 1))
     skip_publish = False
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -411,6 +404,20 @@ async def api_agent_run(request: Request):
     asyncio.create_task(run_production_director(stories))
 
     return {"status": "started", "mode": "adk-production", "run_id": run_id}
+
+
+async def api_agent_run(request: Request):
+    """Start a full autonomous production run through the ADK Production Director."""
+    global app_loop
+    app_loop = asyncio.get_running_loop()
+
+    if pipeline_state["running"]:
+        return JSONResponse({"error": "Pipeline already running"}, 409)
+
+    await request.json()
+    stories = int(settings["pipeline"].get("videos_per_run", 1))
+
+    return await launch_production_run(stories, source="manual")
 
 
 async def run_production_director(stories: int):
@@ -698,6 +705,17 @@ async def api_settings_set(request: Request):
         settings["model"]["provider"] = "gemini"
         if model_values.get("model_id"):
             settings["model"]["model_id"] = model_values["model_id"]
+    scheduler_values = body.get("scheduler")
+    if isinstance(scheduler_values, dict):
+        settings["scheduler"].update(scheduler_values)
+        scheduler_config["enabled"] = bool(scheduler_values.get("enabled", scheduler_config["enabled"]))
+        if scheduler_values.get("interval_hours"):
+            scheduler_config["interval_hours"] = int(scheduler_values["interval_hours"])
+        if scheduler_values.get("videos_per_run"):
+            scheduler_config["stories"] = int(scheduler_values["videos_per_run"])
+        scheduler_config["next_run"] = (
+            datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
+        ).isoformat()
     settings["model"].setdefault("api_keys", {}).pop("gemini", None)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     save_settings()
@@ -1595,6 +1613,8 @@ notification_config = {
 @app.get("/api/notifications")
 async def api_notifications_get():
     return {
+        "slack_webhook": notification_config["slack_webhook"] or "",
+        "email_to": notification_config["email_to"] or "",
         "slack_configured": bool(notification_config["slack_webhook"]),
         "email_configured": bool(notification_config["email_to"]),
         "on_complete": notification_config["on_complete"],
@@ -1604,8 +1624,21 @@ async def api_notifications_get():
 
 @app.post("/api/notifications")
 async def api_notifications_set(request: Request):
-    body = await request.json()
-    notification_config.update(body)
+    body = await request.json() or {}
+    # Never silently wipe a configured endpoint: empty values keep the
+    # previously saved value unless an explicit "clear_webhook"/"clear_email"
+    # flag is provided.
+    for key in ("slack_webhook", "email_to"):
+        value = body.get(key)
+        if value:
+            notification_config[key] = str(value).strip()
+    for key in ("on_complete", "on_error"):
+        if key in body:
+            notification_config[key] = bool(body[key])
+    if body.get("clear_webhook"):
+        notification_config["slack_webhook"] = ""
+    if body.get("clear_email"):
+        notification_config["email_to"] = ""
     settings["notifications"].update({
         key: notification_config[key]
         for key in ("slack_webhook", "email_to", "on_complete", "on_error")
@@ -1719,53 +1752,15 @@ DEFAULT_FEEDS = [
 ]
 
 
-def start_pipeline_task(stories: int, skip_publish: bool):
+async def _scheduled_launch() -> None:
     if pipeline_state["running"]:
         return
-        
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = OUTPUT_DIR / run_id
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    pipeline_state.update({
-        "running": True,
-        "paused": False,
-        "run_id": run_id,
-        "current_step": "agent-orchestrated",
-        "progress": 0,
-        "logs": [],
-        "content_count": stories,
-        "content_done": 0,
-        "start_time": time.time(),
-        "stage_state": {},
-    })
-    reset_agent_activity()
-    persist_pipeline_state()
-
-    model_id = settings["model"].get("model_id", "gemini/gemini-3.5-flash")
-    model_env = {
-        **os.environ,
-        "COLONY_MODEL_ID": model_id,
-        "COLONYV_GEMINI_MODEL": model_id.removeprefix("gemini/"),
-        "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-        "COLONY_TOPIC_PROMPT": settings["content"].get("active_topic", ""),
-    }
-    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
-        model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
-    model_env.pop("GOOGLE_API_KEY", None)
-    model_env.pop("GEMINI_API_KEY", None)
-
-    from colonyv_agent import pipeline_runtime
-    pipeline_runtime.configure(
-        logger=log,
-        activity=set_agent_activity,
-        env=model_env,
-        out_dir=OUTPUT_DIR,
-        run=run_id,
-        skip=skip_publish,
+    stories = int(
+        scheduler_config.get("stories")
+        or settings["pipeline"].get("videos_per_run", 1)
     )
-    
-    asyncio.create_task(run_production_director(stories))
+    log(f"[scheduler] automated run triggered (every ~{scheduler_config.get('interval_hours', 6)}h)")
+    await launch_production_run(stories, source="scheduler")
 
 
 @app.on_event("startup")
@@ -1778,12 +1773,36 @@ async def start_scheduler():
             print("[cloud-state] Firestore run persistence enabled", flush=True)
         except Exception as exc:
             print(f"[cloud-state] Firestore unavailable: {exc}", flush=True)
-    import threading
+    loop = app_loop
+
     def _loop():
         while True:
-            time.sleep(60)
-    t = threading.Thread(target=_loop, daemon=True)
-    t.start()
+            try:
+                if scheduler_config.get("enabled") and not pipeline_state.get("running"):
+                    nxt = scheduler_config.get("next_run")
+                    if nxt:
+                        due = datetime.fromisoformat(nxt)
+                        if datetime.now() >= due:
+                            interval_hours = scheduler_config.get("interval_hours") or 6
+                            scheduler_config["next_run"] = (
+                                datetime.now() + timedelta(hours=interval_hours)
+                            ).isoformat()
+                            settings["scheduler"].update(
+                                {"enabled": True, "interval_hours": interval_hours}
+                            )
+                            try:
+                                save_settings()
+                            except Exception:
+                                pass
+                            try:
+                                asyncio.run_coroutine_threadsafe(_scheduled_launch(), loop)
+                            except RuntimeError:
+                                pass
+            except Exception:
+                pass
+            time.sleep(20)
+
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 if __name__ == "__main__":

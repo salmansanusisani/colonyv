@@ -1373,7 +1373,18 @@ CONTROLS
 
     // Poll Status
     async function pollStatus() {
-        const s = await fetchJson('/api/status', {}, 5000);
+        let s = null;
+        try {
+            s = await fetchJson('/api/status', {}, 5000);
+        } catch (e) {
+            console.warn('status poll failed, retrying...', e);
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            if (dot) dot.className = 'status-dot';
+            if (text) text.textContent = 'Connection lost — retrying…';
+            setTimeout(pollStatus, 3000);
+            return;
+        }
         renderAgentFlow(s.agent_activity, s.active_agent, s.agent_message);
         const dot = document.getElementById('statusDot');
         const text = document.getElementById('statusText');
@@ -1428,7 +1439,6 @@ CONTROLS
                 else if (isStepDone(step, s.current_step)) el.className = 'tracker-node done';
                 else el.className = 'tracker-node';
             });
-            setTimeout(pollStatus, 2000);
         } else {
             dot.className = 'status-dot';
             if (s.current_step === 'complete') {
@@ -1450,6 +1460,7 @@ CONTROLS
                 loadAnalytics();
             }
         }
+        setTimeout(pollStatus, 2000);
     }
 
     function isStepDone(step, current) {
@@ -1701,8 +1712,9 @@ CONTROLS
     async function loadNotifications() {
         const resp = await fetch('/api/notifications');
         if (!resp.ok) return;
-        document.getElementById('slackWebhook').value = '';
-        document.getElementById('emailTo').value = '';
+        const data = await resp.json();
+        document.getElementById('slackWebhook').value = data.slack_webhook || '';
+        document.getElementById('emailTo').value = data.email_to || '';
     }
 
     let customTopics = [];
