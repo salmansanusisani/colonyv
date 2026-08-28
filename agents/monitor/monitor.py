@@ -252,16 +252,15 @@ def main():
     if topic_prompt:
         import urllib.parse
         encoded_topic = urllib.parse.quote(topic_prompt)
-        dynamic_feed = {
+        feeds = [{
             "name": f"Trending: {topic_prompt}",
             "url": f"https://news.google.com/rss/search?q={encoded_topic}",
             "category": "trending",
             "enabled": True
-        }
-        feeds.insert(0, dynamic_feed)
-        print(f"[info] Injecting dynamic search feed for topic: {topic_prompt}")
+        }]
+        print(f"[info] Using exclusive search feed for topic: {topic_prompt}", flush=True)
 
-    print(f"[1/3] Fetching from {len(feeds)} RSS feeds...")
+    print(f"[1/3] Fetching from {len(feeds)} RSS feeds...", flush=True)
     entries = fetch_entries(feeds)
     print(f"  Fetched {len(entries)} unique entries")
 

@@ -1358,6 +1358,13 @@ CONTROLS
             document.getElementById('progressFill').style.width = s.progress + '%';
             document.getElementById('stepText').textContent = s.current_step + ' (' + s.content_done + '/' + s.content_count + ' pieces of content)';
 
+            if (s.elapsed !== undefined) {
+                const diff = Math.floor(s.elapsed);
+                const m = String(Math.floor(diff / 60)).padStart(2, '0');
+                const sec = String(diff % 60).padStart(2, '0');
+                document.getElementById('elapsedText').textContent = `Elapsed: ${m}:${sec}`;
+            }
+
             ['monitor','research','script','render','publish'].forEach(step => {
                 const el = document.getElementById('step-' + step);
                 if (!el) return;

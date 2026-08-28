@@ -12,6 +12,8 @@ frozen mid-run or aborted cleanly from the dashboard.
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import time
 from pathlib import Path
 from typing import Callable
@@ -24,6 +26,12 @@ output_dir: Path | None = None
 skip_publish: bool = False
 _paused: bool = False
 _stop_requested: bool = False
+_active_process: subprocess.Popen | None = None
+
+
+def set_active_process(proc: subprocess.Popen | None) -> None:
+    global _active_process
+    _active_process = proc
 
 
 def configure(
@@ -56,6 +64,11 @@ def configure(
 def set_paused(flag: bool) -> None:
     global _paused
     _paused = bool(flag)
+    if _active_process is not None and _active_process.poll() is None:
+        try:
+            os.killpg(_active_process.pid, signal.SIGSTOP if _paused else signal.SIGCONT)
+        except Exception:
+            pass
 
 
 def log(message: str) -> None:
@@ -74,6 +87,11 @@ def request_stop() -> None:
     global _stop_requested, _paused
     _stop_requested = True
     _paused = False
+    if _active_process is not None and _active_process.poll() is None:
+        try:
+            os.killpg(_active_process.pid, signal.SIGKILL)
+        except Exception:
+            pass
 
 
 def is_stop_requested() -> bool:
@@ -99,6 +117,7 @@ def checkpoint(label: str = "") -> bool:
 
 def process_env() -> dict[str, str]:
     env = {**os.environ, **env_overrides}
+    env["PYTHONUNBUFFERED"] = "1"
     pythonpath = env.get("PYTHONPATH", "")
     project_root = str(Path(__file__).resolve().parent.parent)
     paths = [p for p in pythonpath.split(":") if p] + [project_root]

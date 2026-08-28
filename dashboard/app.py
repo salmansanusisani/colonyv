@@ -167,6 +167,8 @@ pipeline_state = {
     "content_count": 0,
     "content_done": 0,
     "start_time": None,
+    "paused_duration": 0.0,
+    "pause_start": None,
     "current_process": None,
     "active_agent": None,
     "agent_message": "Waiting for a run",
@@ -286,6 +288,19 @@ async def icon_logo():
 
 @app.get("/api/status")
 async def api_status():
+    start = pipeline_state.get("start_time")
+    paused = pipeline_state.get("paused")
+    p_start = pipeline_state.get("pause_start")
+    p_dur = pipeline_state.get("paused_duration", 0.0)
+    
+    if start:
+        if paused and p_start:
+            elapsed = p_start - start - p_dur
+        else:
+            elapsed = time.time() - start - p_dur
+    else:
+        elapsed = 0.0
+
     return {
         "running": pipeline_state["running"],
         "paused": pipeline_state["paused"],
@@ -294,11 +309,7 @@ async def api_status():
         "progress": pipeline_state["progress"],
         "content_count": pipeline_state["content_count"],
         "content_done": pipeline_state["content_done"],
-        "elapsed": (
-            time.time() - pipeline_state["start_time"]
-            if pipeline_state["start_time"]
-            else 0
-        ),
+        "elapsed": max(0.0, elapsed),
         "uptime": time.time() - APP_STARTED_AT,
         "next_run": scheduler_config.get("next_run") if "scheduler_config" in globals() else None,
         "active_agent": pipeline_state["active_agent"],
@@ -348,6 +359,8 @@ async def api_agent_run(request: Request):
         "content_count": stories,
         "content_done": 0,
         "start_time": time.time(),
+        "paused_duration": 0.0,
+        "pause_start": None,
         "stage_state": {},
     })
     reset_agent_activity()
@@ -605,6 +618,7 @@ async def api_pipeline_pause():
     if not pipeline_state["running"]:
         return JSONResponse({"error": "Pipeline is not running"}, 409)
     pipeline_state["paused"] = True
+    pipeline_state["pause_start"] = time.time()
     from colonyv_agent import pipeline_runtime
     pipeline_runtime.set_paused(True)
     proc = pipeline_state.get("current_process")
@@ -622,6 +636,9 @@ async def api_pipeline_resume():
     if not pipeline_state["running"]:
         return JSONResponse({"error": "Pipeline is not running"}, 409)
     pipeline_state["paused"] = False
+    if pipeline_state.get("pause_start"):
+        pipeline_state["paused_duration"] += (time.time() - pipeline_state["pause_start"])
+        pipeline_state["pause_start"] = None
     from colonyv_agent import pipeline_runtime
     pipeline_runtime.set_paused(False)
     proc = pipeline_state.get("current_process")

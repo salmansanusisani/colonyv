@@ -110,6 +110,7 @@ def run_script(
         env=runtime.process_env(),
         start_new_session=True,
     )
+    runtime.set_active_process(proc)
     stdout_lines: list[str] = []
     try:
         start = datetime.now()
@@ -137,6 +138,7 @@ def run_script(
                 runtime.log(f"[{step_label}] exited {ret}")
                 return subprocess.CompletedProcess(cmd, ret, "\n".join(stdout_lines), "")
     finally:
+        runtime.set_active_process(None)
         proc.wait()
         if proc.stdout:
             proc.stdout.close()
