@@ -1698,41 +1698,6 @@ DEFAULT_FEEDS = [
 ]
 
 
-@app.get("/api/feeds")
-
-# --- Scheduler engine ---
-
-scheduler_job = None
-
-
-def scheduler_tick():
-    """Background scheduler: runs pipeline when next_run is due."""
-    if not scheduler_config["enabled"]:
-        return
-    if pipeline_state["running"]:
-        return
-    if not scheduler_config.get("next_run"):
-        return
-
-    try:
-        next_run = datetime.fromisoformat(scheduler_config["next_run"])
-        if datetime.now() >= next_run:
-            # Time to run
-            scheduler_config["last_run"] = datetime.now().isoformat()
-            scheduler_config["next_run"] = (
-                datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
-            ).isoformat()
-            # Trigger the same initialized run path used by the dashboard button.
-            if app_loop:
-                app_loop.call_soon_threadsafe(
-                    start_pipeline_task,
-                    scheduler_config["stories"],
-                    bool(settings["pipeline"].get("skip_publish", True)),
-                )
-    except Exception:
-        pass
-
-
 def start_pipeline_task(stories: int, skip_publish: bool):
     if pipeline_state["running"]:
         return
