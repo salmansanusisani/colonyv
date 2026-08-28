@@ -391,7 +391,7 @@ async def api_agent_run(request: Request):
         log("Async pipeline scheduled: monitor stage published")
         return {"status": "started", "mode": "adk-async", "run_id": run_id}
 
-    asyncio.create_task(run_production_director(pieces of content))
+    asyncio.create_task(run_production_director(stories))
 
     return {"status": "started", "mode": "adk-production", "run_id": run_id}
 
@@ -400,7 +400,7 @@ async def run_production_director(stories: int):
     from colonyv_agent.factory import run_factory_async
 
     try:
-        result = await run_factory_async(pieces of content)
+        result = await run_factory_async(stories)
         from colonyv_agent import pipeline_runtime as rt
         if rt.is_stop_requested():
             log("ADK production stopped by operator.")
