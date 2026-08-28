@@ -18,16 +18,16 @@ from colonyv_agent.tools.editorial import (
     evaluate_publication_gate,
     evaluate_render_result,
     evaluate_research_gate,
-    evaluate_story_candidate,
+    evaluate_content_candidate,
     evaluate_upload_result,
 )
 from colonyv_agent.tools.pipeline import (
     analyze_performance,
-    discover_stories,
+    discover_content,
     plan_scenes,
     publish_to_youtube,
     request_render,
-    research_story,
+    research_content,
     write_script,
 )
 
@@ -44,44 +44,44 @@ def _policy(decision: dict[str, Any]) -> None:
     )
 
 
-def run_factory(stories: int) -> dict[str, Any]:
+def run_factory(content: int) -> dict[str, Any]:
     ctx = _Context()
     produced: list[dict[str, Any]] = []
 
-    discover = discover_stories(ctx)
+    discover = discover_content(ctx)
     if not discover.get("success"):
         return {"error": discover.get("error", "discovery failed")}
 
     run_dir = ctx.state.get("run_dir")
     candidates = [
         s
-        for s in ctx.state.get("stories", [])
-        if s.get("story_id") and s.get("title")
+        for s in ctx.state.get("content", [])
+        if s.get("content_id") and s.get("title")
     ]
     if not candidates:
         return {"error": "No usable candidates were discovered", "run_id": ctx.state.get("run_id")}
 
-    for story in candidates[: stories]:
-        if not runtime.checkpoint(f"pending story {story['title'][:40]}"):
+    for content in candidates[: content]:
+        if not runtime.checkpoint(f"pending content {content['title'][:40]}"):
             runtime.activity("autonomous", "stopped", "Run stopped by operator")
-            return {"stopped": True, "stories_produced": produced,
+            return {"stopped": True, "content_produced": produced,
                     "run_id": ctx.state.get("run_id")}
 
-        gate = evaluate_story_candidate(
-            title=story.get("title", ""),
-            relevance_score=story.get("relevance_score", 0.0),
-            novelty_score=story.get("novelty_score", 0.0),
-            urgency_score=story.get("urgency_score", 0.0),
+        gate = evaluate_content_candidate(
+            title=content.get("title", ""),
+            relevance_score=content.get("relevance_score", 0.0),
+            novelty_score=content.get("novelty_score", 0.0),
+            urgency_score=content.get("urgency_score", 0.0),
         )
         _policy(gate)
         if gate["decision"] != "continue":
-            runtime.activity("research", "skipped", f"Story rejected by gate: {story['title'][:60]}")
+            runtime.activity("research", "skipped", f"Story rejected by gate: {content['title'][:60]}")
             continue
 
         research = None
         research_gate: dict[str, Any] | None = None
         for attempt in range(1, 4):
-            research = research_story(story["index"], ctx)
+            research = research_content(content["index"], ctx)
             if not research.get("success"):
                 research_gate = {"decision": "stop", "reason": research.get("error", "research failed")}
                 break
@@ -99,15 +99,15 @@ def run_factory(stories: int) -> dict[str, Any]:
             break
 
         if not research or not research.get("success"):
-            runtime.activity("research", "failed", "Research could not be completed for this story")
+            runtime.activity("research", "failed", "Research could not be completed for this content")
             continue
         if research_gate and research_gate["decision"] == "stop":
             runtime.activity("research", "failed", research_gate["reason"])
             continue
 
-        if not runtime.checkpoint(f"story '{story['title'][:40]}' research complete"):
+        if not runtime.checkpoint(f"content '{content['title'][:40]}' research complete"):
             runtime.activity("autonomous", "stopped", "Run stopped by operator")
-            return {"stopped": True, "stories_produced": produced,
+            return {"stopped": True, "content_produced": produced,
                     "run_id": ctx.state.get("run_id")}
 
         script = write_script(ctx)
@@ -137,12 +137,12 @@ def run_factory(stories: int) -> dict[str, Any]:
             break
 
         if not render or not render.get("success") or not render.get("output_exists"):
-            runtime.activity("render", "failed", "Render failed for this story")
+            runtime.activity("render", "failed", "Render failed for this content")
             continue
 
-        if not runtime.checkpoint(f"story '{story['title'][:40]}' rendered"):
+        if not runtime.checkpoint(f"content '{content['title'][:40]}' rendered"):
             runtime.activity("autonomous", "stopped", "Run stopped by operator")
-            return {"stopped": True, "stories_produced": produced,
+            return {"stopped": True, "content_produced": produced,
                     "run_id": ctx.state.get("run_id")}
 
         publication = evaluate_publication_gate(
@@ -158,9 +158,9 @@ def run_factory(stories: int) -> dict[str, Any]:
             verify_attempt += 1
             runtime.log(
                 f"[publish] gate pending ({publication['reason']}); "
-                f"re-verifying story (attempt {verify_attempt}/{MAX_VERIFY_ATTEMPTS})"
+                f"re-verifying content (attempt {verify_attempt}/{MAX_VERIFY_ATTEMPTS})"
             )
-            research = research_story(story["index"], ctx)
+            research = research_content(content["index"], ctx)
             if not research.get("success"):
                 break
             publication = evaluate_publication_gate(
@@ -190,34 +190,34 @@ def run_factory(stories: int) -> dict[str, Any]:
             runtime.log(f"[publish] upload retry {upload_attempt}/3 ({up['reason']})")
 
         produced.append({
-            "story_id": story["story_id"],
-            "title": story["title"],
+            "content_id": content["content_id"],
+            "title": content["title"],
             "script": script,
             "render": render,
             "video": render.get("mp4_path"),
         })
         runtime.log(
-            f"[factory] story complete: {story['title'][:60]} -> "
+            f"[factory] content complete: {content['title'][:60]} -> "
             f"{render.get('mp4_path', 'no video')}"
         )
 
     if not runtime.checkpoint("analysis"):
         runtime.activity("autonomous", "stopped", "Run stopped by operator before analysis")
-        return {"stopped": True, "stories_produced": produced,
+        return {"stopped": True, "content_produced": produced,
                 "run_id": ctx.state.get("run_id")}
 
-    analysis = analyze_performance(ctx) if produced else {"success": False, "error": "no stories produced"}
+    analysis = analyze_performance(ctx) if produced else {"success": False, "error": "no content produced"}
 
     summary = {
         "run_id": ctx.state.get("run_id"),
-        "stories_produced": produced,
+        "content_produced": produced,
         "analysis": analysis.get("analyst") if analysis.get("success") else None,
     }
     return summary
 
 
-def run_factory_async(stories: int):
+def run_factory_async(content: int):
     import asyncio
 
     loop = asyncio.get_running_loop()
-    return loop.run_in_executor(None, lambda: run_factory(stories))
+    return loop.run_in_executor(None, lambda: run_factory(content))
