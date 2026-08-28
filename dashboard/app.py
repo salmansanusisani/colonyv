@@ -1699,22 +1699,6 @@ DEFAULT_FEEDS = [
 
 
 @app.get("/api/feeds")
-async def api_feeds_get():
-    if FEEDS_PATH.exists():
-        with open(FEEDS_PATH) as f:
-            return {"feeds": json.load(f)}
-    return {"feeds": DEFAULT_FEEDS}
-
-
-@app.post("/api/feeds")
-async def api_feeds_set(request: Request):
-    body = await request.json()
-    feeds = body.get("feeds", [])
-    FEEDS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(FEEDS_PATH, "w") as f:
-        json.dump(feeds, f, indent=2)
-    return {"status": "ok", "count": len(feeds)}
-
 
 # --- Scheduler engine ---
 

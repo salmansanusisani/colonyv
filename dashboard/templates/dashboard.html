@@ -988,7 +988,6 @@
                     <div class="card-title" style="padding:8px 12px 10px;">Settings</div>
                     <button class="btn-apple" data-settings-tab="model" onclick="showSettingsTab('model', this)"><span data-icon="cpu"></span> AI Model</button>
                     <button class="btn-apple" data-settings-tab="content" onclick="showSettingsTab('content', this)"><span data-icon="search"></span> Content Focus</button>
-                    <button class="btn-apple" data-settings-tab="feeds" onclick="showSettingsTab('feeds', this)"><span data-icon="rss"></span> RSS Sources</button>
                     <button class="btn-apple" data-settings-tab="youtube" onclick="showSettingsTab('youtube', this)"><span data-icon="youtube"></span> YouTube</button>
                     <button class="btn-apple" data-settings-tab="pipeline" onclick="showSettingsTab('pipeline', this)"><span data-icon="sliders"></span> Pipeline</button>
                     <button class="btn-apple" data-settings-tab="alerts" onclick="showSettingsTab('alerts', this)"><span data-icon="bell"></span> Notifications</button>
@@ -1034,6 +1033,8 @@
 
                     <!-- 1. Target Niche & Channel Settings -->
                     <div class="apple-card settings-panel" id="niche-setup" data-settings-panel="content">
+                        <div class="card-title" style="margin-bottom:16px;">Channel Niche & Target Topic Focus</div>
+
                         <div class="card-title" style="margin-bottom:16px;">Channel Niche & Target Topic Focus</div>
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Customize the target news domains and topic categories your pipeline focuses on.</p>
 
@@ -1627,35 +1628,6 @@ CONTROLS
 
     // Feeds
     let feedData = [];
-    async function loadFeeds() {
-        const resp = await fetch('/api/feeds');
-        const data = await resp.json();
-        feedData = data.feeds;
-        renderFeeds();
-    }
-
-    function renderFeeds() {
-        const el = document.getElementById('feedsList');
-        if (!feedData.length) { el.innerHTML = '<p style="font-size:13px; color:var(--text-tertiary)">No feeds configured</p>'; return; }
-        el.innerHTML = feedData.map((f, i) => `
-            <div class="feed-item">
-                <input type="text" value="${esc(f.url)}" onchange="feedData[${i}].url=this.value" class="apple-input">
-                <select onchange="feedData[${i}].category=this.value" class="apple-select">
-                    <option value="ai" ${f.category==='ai'?'selected':''}>AI</option>
-                    <option value="tech" ${f.category==='tech'?'selected':''}>Tech</option>
-                    <option value="crypto" ${f.category==='crypto'?'selected':''}>Crypto</option>
-                </select>
-                <button class="btn-apple btn-apple-danger btn-sm" onclick="feedData.splice(${i},1);renderFeeds()">Remove</button>
-            </div>
-        `).join('');
-    }
-
-    function addFeed() { feedData.push({url:'', category:'ai'}); renderFeeds(); }
-    async function saveFeeds() {
-        await fetch('/api/feeds', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({feeds: feedData}) });
-        toast('Feeds saved', 'info');
-    }
-
     // Notifications
     async function saveNotifications() {
         const body = { slack_webhook: document.getElementById('slackWebhook').value, email_to: document.getElementById('emailTo').value };
