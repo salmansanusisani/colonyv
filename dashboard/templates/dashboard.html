@@ -1302,37 +1302,55 @@ CONTROLS
         }
     }
 
+    let currentElapsed = 0;
+    let isTimerRunning = false;
+
     async function stopPipeline() {
         document.getElementById('stopBtn').disabled = true;
+        stopTimer();
         await fetch('/api/pipeline/stop', { method: 'POST' });
         toast('Run stopping...', 'info');
         pollStatus();
     }
 
     async function pausePipeline() {
+        pauseTimer();
         await fetch('/api/pipeline/pause', {method:'POST'});
         toast('Run paused', 'info');
         pollStatus();
     }
 
     async function resumePipeline() {
+        resumeTimer();
         await fetch('/api/pipeline/resume', {method:'POST'});
         toast('Run resumed', 'info');
         pollStatus();
     }
 
-    function startTimer() {
+    function startTimer(initialElapsed = 0) {
+        currentElapsed = initialElapsed;
+        isTimerRunning = true;
         if (timerInterval) clearInterval(timerInterval);
         timerInterval = setInterval(() => {
-            if (!runStartTime) return;
-            const diff = Math.floor((Date.now() - runStartTime) / 1000);
-            const m = String(Math.floor(diff / 60)).padStart(2, '0');
-            const s = String(diff % 60).padStart(2, '0');
-            document.getElementById('elapsedText').textContent = `Elapsed: ${m}:${s}`;
+            if (isTimerRunning) {
+                currentElapsed += 1;
+                const m = String(Math.floor(currentElapsed / 60)).padStart(2, '0');
+                const s = String(currentElapsed % 60).padStart(2, '0');
+                document.getElementById('elapsedText').textContent = `Elapsed: ${m}:${s}`;
+            }
         }, 1000);
     }
 
+    function pauseTimer() {
+        isTimerRunning = false;
+    }
+
+    function resumeTimer() {
+        isTimerRunning = true;
+    }
+
     function stopTimer() {
+        isTimerRunning = false;
         if (timerInterval) clearInterval(timerInterval);
     }
 
@@ -1374,10 +1392,16 @@ CONTROLS
             document.getElementById('stepText').textContent = s.current_step + ' (' + s.content_done + '/' + s.content_count + ' pieces of content)';
 
             if (s.elapsed !== undefined) {
-                const diff = Math.floor(s.elapsed);
-                const m = String(Math.floor(diff / 60)).padStart(2, '0');
-                const sec = String(diff % 60).padStart(2, '0');
+                currentElapsed = Math.floor(s.elapsed);
+                const m = String(Math.floor(currentElapsed / 60)).padStart(2, '0');
+                const sec = String(currentElapsed % 60).padStart(2, '0');
                 document.getElementById('elapsedText').textContent = `Elapsed: ${m}:${sec}`;
+            }
+
+            if (s.paused) {
+                pauseTimer();
+            } else if (!isTimerRunning) {
+                startTimer(currentElapsed);
             }
 
             ['monitor','research','script','render','publish'].forEach(step => {
