@@ -315,6 +315,7 @@ async def api_status():
         "active_agent": pipeline_state["active_agent"],
         "agent_message": pipeline_state["agent_message"],
         "agent_activity": pipeline_state["agent_activity"],
+        "logs": pipeline_state["logs"][-30:],
     }
 
 
@@ -338,6 +339,9 @@ async def api_agent_invoke(request: Request):
 @app.post("/api/agent/run")
 async def api_agent_run(request: Request):
     """Start a full autonomous production run through the ADK Production Director."""
+    global app_loop
+    app_loop = asyncio.get_running_loop()
+
     if pipeline_state["running"]:
         return JSONResponse({"error": "Pipeline already running"}, 409)
 

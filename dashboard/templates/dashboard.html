@@ -1348,6 +1348,21 @@ CONTROLS
         const scheduleText = s.next_run ? `Next scheduled run ${new Date(s.next_run).toLocaleString()} · Agent uptime ${uh}h ${um}m` : `Agent uptime ${uh}h ${um}m · Schedule disabled`;
         document.getElementById('scheduleSummary').textContent = scheduleText;
 
+        if (s.logs && s.logs.length > 0) {
+            const logBox = document.getElementById('liveLog');
+            if (logBox && logBox.children.length === 0) {
+                s.logs.forEach(logLine => {
+                    const line = document.createElement('div');
+                    line.className = 'log-entry';
+                    if (logLine.includes('SUCCESS') || logLine.includes('OK')) line.classList.add('success');
+                    if (logLine.includes('WARN')) line.classList.add('warning');
+                    line.textContent = logLine;
+                    logBox.appendChild(line);
+                });
+                logBox.scrollTop = logBox.scrollHeight;
+            }
+        }
+
         if (s.running) {
             dot.className = 'status-dot active';
             text.textContent = s.paused ? 'Paused' : 'Running (' + (s.current_step || '...') + ')';

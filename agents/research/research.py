@@ -25,6 +25,8 @@ from bs4 import BeautifulSoup
 import jsonschema
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "research_output.schema.json"
 
 LLM_MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
@@ -36,6 +38,51 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
+WAYBACK_PREFIX = "https://web.archive.org/web/2/"
+READER_PROXY_PREFIX = "https://r.jina.ai/"
+
+BROWSER_PROFILES = [
+    {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    },
+    {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+    },
+    {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
+    },
+]
+
+_ua_cycle = iter(())
+
+
+def _next_browser_headers() -> dict[str, str]:
+    global _ua_cycle
+    profile = next(_ua_cycle, None)
+    if profile is None:
+        from itertools import cycle
+        _ua_cycle = cycle(BROWSER_PROFILES)
+        profile = next(_ua_cycle)
+    return {**HEADERS, **profile}
+
 
 def load_schema():
     with open(SCHEMA_PATH) as f:
@@ -44,35 +91,77 @@ def load_schema():
 
 # --- Web scraping with self-healing ---
 
-def fetch_html(url: str) -> str | None:
+def _fetch_variant(url: str, headers: dict[str, str], attempt: int) -> tuple[str | None, dict]:
+    """One fetch attempt for a URL/variant. Returns (text, meta)."""
+    try:
+        resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+        if resp.status_code == 429:
+            wait = 5 * (attempt + 1)
+            print(f"  [warn] Rate limited (429), waiting {wait}s...", file=sys.stderr)
+            time.sleep(wait)
+            return None, {"status": 429}
+        if resp.status_code in (401, 403, 404):
+            print(f"  [warn] Received {resp.status_code} for {url}", file=sys.stderr)
+            time.sleep(2)
+            return None, {"status": resp.status_code}
+        resp.raise_for_status()
+        if not resp.text or len(resp.text.strip()) < 50:
+            return None, {"status": "empty"}
+        return resp.text, {"status": resp.status_code}
+    except requests.exceptions.ConnectionError:
+        print("  [warn] Connection error, retrying in 3s...", file=sys.stderr)
+        time.sleep(3)
+        return None, {"status": "connection_error"}
+    except requests.exceptions.Timeout:
+        print("  [warn] Timeout, retrying in 3s...", file=sys.stderr)
+        time.sleep(3)
+        return None, {"status": "timeout"}
+    except Exception as e:
+        print(f"  [warn] Failed to fetch {url}: {e}", file=sys.stderr)
+        return None, {"status": "error", "error": str(e)}
+
+
+def fetch_html_with_meta(url: str) -> tuple[str | None, str]:
+    """Self-healing fetcher.
+
+    Tries the source directly with rotating browser fingerprints, then
+    falls back to the Wayback Machine snapshot and a reader proxy when the
+    publisher blocks bots (403/Cloudflare/etc.). Returns (html, source_tag).
+    """
     for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT, allow_redirects=True)
-            if resp.status_code == 429:
-                wait = 5 * (attempt + 1)
-                print(f"  [warn] Rate limited (429), waiting {wait}s...", file=sys.stderr)
-                time.sleep(wait)
-                continue
-            if resp.status_code == 403:
-                wait = 3 * (attempt + 1)
-                print(f"  [warn] Forbidden (403), waiting {wait}s...", file=sys.stderr)
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            return resp.text
-        except requests.exceptions.ConnectionError:
-            wait = 3 * (attempt + 1)
-            print(f"  [warn] Connection error, retrying in {wait}s...", file=sys.stderr)
-            time.sleep(wait)
-        except requests.exceptions.Timeout:
-            wait = 3 * (attempt + 1)
-            print(f"  [warn] Timeout, retrying in {wait}s...", file=sys.stderr)
-            time.sleep(wait)
-        except Exception as e:
-            print(f"  [warn] Failed to fetch {url}: {e}", file=sys.stderr)
-            return None
-    print(f"  [warn] Failed to fetch {url} after 3 attempts", file=sys.stderr)
-    return None
+        text, meta = _fetch_variant(url, _next_browser_headers(), attempt)
+        if text:
+            return text, "direct"
+        if meta.get("status") in (401, 403, 404) or meta.get("status") == "error":
+            break
+
+    wayback_url = WAYBACK_PREFIX + url
+    print("  [heal] direct fetch blocked; trying Wayback Machine snapshot...", file=sys.stderr)
+    for attempt in range(2):
+        text, meta = _fetch_variant(wayback_url, _next_browser_headers(), attempt)
+        if text:
+            print("  [heal] recovered from Wayback Machine", file=sys.stderr)
+            return text, "wayback"
+        if meta.get("status") in (401, 403):
+            break
+
+    reader_url = READER_PROXY_PREFIX + url
+    print("  [heal] Wayback unavailable; trying reader proxy...", file=sys.stderr)
+    for attempt in range(2):
+        text, meta = _fetch_variant(reader_url, _next_browser_headers(), attempt)
+        if text:
+            print("  [heal] recovered via reader proxy", file=sys.stderr)
+            return text, "reader"
+        if meta.get("status") in (401, 403):
+            break
+
+    print(f"  [warn] Failed to fetch {url} via direct/wayback/reader after retries", file=sys.stderr)
+    return None, "failed"
+
+
+def fetch_html(url: str) -> str | None:
+    """Backwards-compatible wrapper. Prefer fetch_html_with_meta()."""
+    return fetch_html_with_meta(url)[0]
 
 
 def extract_editorial_assets(html: str, source_url: str) -> list[dict]:
@@ -144,7 +233,7 @@ def extract_content(html: str, strategy_index: int = 0) -> tuple[str, int]:
 
 def self_healing_extract(url: str) -> dict[str, Any]:
     """Fetch + extract with self-healing. Returns dict with content, strategy, success."""
-    html = fetch_html(url)
+    html, fetch_source = fetch_html_with_meta(url)
     if not html:
         return {"content": "", "strategy": "failed", "success": False, "error": "fetch_failed"}
 
@@ -155,7 +244,7 @@ def self_healing_extract(url: str) -> dict[str, Any]:
     if content:
         return {
             "content": content,
-            "strategy": strategy_names[strategy_idx],
+            "strategy": f"{strategy_names[strategy_idx]}@{fetch_source}",
             "success": True,
             "attempts": strategy_idx + 1,
             "assets": assets,
@@ -167,7 +256,7 @@ def self_healing_extract(url: str) -> dict[str, Any]:
     if len(raw_text) > 100:
         return {
             "content": raw_text,
-            "strategy": "raw_fallback",
+            "strategy": f"raw_fallback@{fetch_source}",
             "success": True,
             "attempts": len(EXTRACTION_STRATEGIES) + 1,
             "assets": assets,

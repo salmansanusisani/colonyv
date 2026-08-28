@@ -20,6 +20,8 @@ from pathlib import Path
 import jsonschema
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "analyst_output.schema.json"
 
 LLM_MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
