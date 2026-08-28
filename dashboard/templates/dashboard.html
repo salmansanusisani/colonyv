@@ -158,6 +158,7 @@
         .agent-node { min-width:0; padding:15px 12px; border:1px solid var(--border-light); border-radius:15px; background:rgba(255,255,255,.88); transition:all .35s ease; }
         .agent-node.active { border-color:var(--apple-blue); box-shadow:0 0 0 3px rgba(0,113,227,.1), 0 10px 24px rgba(0,113,227,.12); transform:translateY(-4px); }
         .agent-node.complete { border-color:rgba(52,199,89,.35); background:rgba(52,199,89,.05); }
+        .agent-node.pending { border-color:var(--border-light); opacity:0.6; }
         .agent-node.failed { border-color:rgba(255,59,48,.35); background:rgba(255,59,48,.04); }
         .agent-node-icon { width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:10px; background:#f1f5f9; color:var(--text-secondary); margin-bottom:12px; }
         .agent-node.active .agent-node-icon { color:#fff; background:var(--apple-blue); }
@@ -172,6 +173,8 @@
         .terminal-toggle { display:inline-flex; align-items:center; gap:8px; margin-top:16px; border:0; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:12px; font-weight:700; }
         .terminal-toggle:hover { color:var(--apple-blue); }
         .terminal-toggle svg { width:15px; }
+        .spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; }
+        @keyframes spin { to{transform:rotate(360deg)} }
         @media (max-width: 900px) { .agent-flow { grid-template-columns:repeat(2, 1fr); } .agent-board::before { display:none; } }
 
         .brand-subtitle {
@@ -839,14 +842,11 @@
                 </div>
 
                 <div style="display:flex; gap:10px;">
-                    <button id="agentRunBtn" class="btn-apple btn-apple-primary" onclick="startAgentRun()" title="Gemini + Google ADK Editorial Director operates every stage">
-                        <span data-icon="bot"></span> Autonomous Run
+                    <button id="agentRunBtn" class="btn-apple btn-apple-primary" onclick="startAgentRun()" title="Start or stop the autonomous production pipeline">
+                        <span data-icon="bot"></span> <span id="runBtnText">Autonomous Run</span>
                     </button>
-                    <button id="pauseBtn" class="btn-apple btn-apple-secondary" onclick="pausePipeline()" disabled style="border:1px solid var(--apple-amber); color:var(--apple-amber);">
-                        <span data-icon="pause"></span> Pause
-                    </button>
-                    <button id="resumeBtn" class="btn-apple btn-apple-secondary" onclick="resumePipeline()" disabled style="border:1px solid var(--apple-blue); color:var(--apple-blue);">
-                        <span data-icon="play"></span> Resume
+                    <button id="pauseResumeBtn" class="btn-apple btn-apple-secondary" onclick="pauseResumePipeline()" disabled style="border:1px solid var(--apple-amber); color:var(--apple-amber);">
+                        <span data-icon="pause"></span> <span id="pauseResumeText">Pause</span>
                     </button>
                     <button id="stopBtn" class="btn-apple btn-apple-danger" onclick="stopPipeline()" disabled>
                         <span data-icon="square"></span> Stop
@@ -1286,6 +1286,15 @@ CONTROLS
 
     // Pipeline Controls
     async function startAgentRun() {
+        const runBtn = document.getElementById('agentRunBtn');
+        const runText = document.getElementById('runBtnText');
+        if (runBtn.dataset.state === 'stop') {
+            await stopPipeline();
+            return;
+        }
+        runBtn.disabled = true;
+        runText.innerHTML = '<span class="spinner"></span> Starting...';
+        runBtn.dataset.state = 'loading';
         const resp = await fetch('/api/agent/run', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1293,15 +1302,14 @@ CONTROLS
         });
         if (resp.ok) {
             const data = await resp.json();
-            document.getElementById('agentRunBtn').disabled = true;
-            document.getElementById('agentRunBtn').textContent = 'Editorial Director active...';
-            document.getElementById('pauseBtn').disabled = false;
-            document.getElementById('resumeBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
+            runBtn.disabled = true;
+            runBtn.dataset.state = 'stop';
+            runBtn.style.borderColor = 'var(--apple-red)';
+            runText.textContent = 'Stop';
             document.getElementById('progressSection').style.display = 'block';
             document.getElementById('stepText').textContent = 'Editorial Director orchestrating production...';
             document.getElementById('liveLog').innerHTML = '';
-            
+
             // Immediately reset agent cards to pending state for the new run
             document.querySelectorAll('.agent-node').forEach(node => {
                 node.className = 'agent-node pending';
@@ -1315,6 +1323,11 @@ CONTROLS
             setTimeout(pollStatus, 500);
         } else {
             const data = await resp.json();
+            runBtn.disabled = false;
+            runBtn.dataset.state = 'idle';
+            runBtn.style.borderColor = '';
+            runText.innerHTML = '<span data-icon="bot"></span> Autonomous Run';
+            hydrateIcons();
             toast(data.error || 'Failed to start autonomous run', 'error');
         }
     }
@@ -1330,17 +1343,25 @@ CONTROLS
         pollStatus();
     }
 
-    async function pausePipeline() {
-        pauseTimer();
-        await fetch('/api/pipeline/pause', {method:'POST'});
-        toast('Run paused', 'info');
-        pollStatus();
-    }
-
-    async function resumePipeline() {
-        resumeTimer();
-        await fetch('/api/pipeline/resume', {method:'POST'});
-        toast('Run resumed', 'info');
+    async function pauseResumePipeline() {
+        const btn = document.getElementById('pauseResumeBtn');
+        const text = document.getElementById('pauseResumeText');
+        if (isPaused) {
+            await fetch('/api/pipeline/resume', {method:'POST'});
+            isPaused = false;
+            text.textContent = 'Pause';
+            btn.style.borderColor = 'var(--apple-amber)';
+            btn.style.color = 'var(--apple-amber)';
+            toast('Run resumed', 'info');
+        } else {
+            pauseTimer();
+            await fetch('/api/pipeline/pause', {method:'POST'});
+            isPaused = true;
+            text.textContent = 'Resume';
+            btn.style.borderColor = 'var(--apple-blue)';
+            btn.style.color = 'var(--apple-blue)';
+            toast('Run paused', 'info');
+        }
         pollStatus();
     }
 
@@ -1373,6 +1394,8 @@ CONTROLS
 
     // Poll Status
     let statusWasComplete = false;
+    let previousWasRunning = false;
+    let isPaused = false;
 
     async function pollStatus() {
         let s = null;
@@ -1414,10 +1437,23 @@ CONTROLS
         if (s.running) {
             dot.className = 'status-dot active';
             text.textContent = s.paused ? 'Paused' : 'Running (' + (s.current_step || '...') + ')';
-            document.getElementById('agentRunBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            document.getElementById('pauseBtn').disabled = !!s.paused;
-            document.getElementById('resumeBtn').disabled = !s.paused;
+
+            const runBtn = document.getElementById('agentRunBtn');
+            const runText = document.getElementById('runBtnText');
+            runBtn.disabled = false;
+            runBtn.dataset.state = 'stop';
+            runBtn.style.borderColor = 'var(--apple-red)';
+            runText.innerHTML = '<span data-icon="square"></span> Stop';
+            hydrateIcons();
+
+            document.getElementById('pauseResumeBtn').disabled = false;
+            document.getElementById('pauseResumeText').textContent = s.paused ? 'Resume' : 'Pause';
+            document.getElementById('pauseResumeBtn').style.borderColor = s.paused ? 'var(--apple-blue)' : 'var(--apple-amber)';
+            document.getElementById('pauseResumeBtn').style.color = s.paused ? 'var(--apple-blue)' : 'var(--apple-amber)';
+            isPaused = !!s.paused;
+
+            document.getElementById('stopBtn').disabled = true;
+
             document.getElementById('progressFill').style.width = s.progress + '%';
             document.getElementById('stepText').textContent = s.current_step + ' (' + s.content_done + '/' + s.content_count + ' pieces of content)';
 
@@ -1441,6 +1477,8 @@ CONTROLS
                 else if (isStepDone(step, s.current_step)) el.className = 'tracker-node done';
                 else el.className = 'tracker-node';
             });
+
+            previousWasRunning = true;
         } else {
             dot.className = 'status-dot';
             if (s.current_step === 'complete') {
@@ -1450,11 +1488,19 @@ CONTROLS
             } else {
                 text.textContent = 'System Idle';
             }
-            document.getElementById('agentRunBtn').disabled = false;
-            document.getElementById('agentRunBtn').textContent = 'Autonomous Run';
+
+            const runBtn = document.getElementById('agentRunBtn');
+            const runText = document.getElementById('runBtnText');
+            runBtn.disabled = false;
+            runBtn.dataset.state = 'idle';
+            runBtn.style.borderColor = '';
+            runText.innerHTML = '<span data-icon="bot"></span> Autonomous Run';
+            hydrateIcons();
+
+            document.getElementById('pauseResumeBtn').disabled = true;
+            document.getElementById('pauseResumeText').textContent = 'Pause';
             document.getElementById('stopBtn').disabled = true;
-            document.getElementById('pauseBtn').disabled = true;
-            document.getElementById('resumeBtn').disabled = true;
+
             stopTimer();
             if (s.current_step === 'complete') {
                 if (!statusWasComplete) {
@@ -1465,6 +1511,16 @@ CONTROLS
                 }
             } else {
                 statusWasComplete = false;
+            }
+
+            // Reset agent cards when run ends (transition from running to idle/complete)
+            if (previousWasRunning) {
+                document.querySelectorAll('.agent-node').forEach(node => {
+                    node.className = 'agent-node pending';
+                    const statusSpan = node.querySelector('.agent-node-status');
+                    if (statusSpan) statusSpan.textContent = 'pending';
+                });
+                previousWasRunning = false;
             }
         }
         setTimeout(pollStatus, 2000);
