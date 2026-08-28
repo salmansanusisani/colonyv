@@ -226,12 +226,12 @@ const AnimatedCounter: React.FC<{ target: number; prefix?: string; suffix?: stri
   const { fps } = useVideoConfig();
   const p = Math.max(0, Math.min(1, spring({ frame: frame - delay, fps, config: { damping: 24, stiffness: 80 } })));
   const current = interpolate(p, [0, 1], [0, target], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const fontSize = target >= 10000 ? 88 : 120;
+  const fontSize = target >= 10000 ? 84 : 110;
 
   return (
-    <div style={{ fontFamily: theme.fonts.display, fontSize, fontWeight: 900, color: theme.colors.text, letterSpacing: -3, lineHeight: 1, whiteSpace: "nowrap" }}>
+    <div style={{ fontFamily: theme.fonts.display, fontSize, fontWeight: 900, color: theme.colors.text, lineHeight: 1 }}>
       <span style={{ color: accent }}>{prefix}</span>
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>{target % 1 === 0 ? Math.round(current).toLocaleString() : current.toFixed(1)}</span>
+      <span>{target % 1 === 0 ? Math.round(current).toLocaleString("en-US") : current.toFixed(1)}</span>
       <span style={{ color: accent, fontSize: Math.round(fontSize * 0.65), marginLeft: 8 }}>{suffix}</span>
     </div>
   );
@@ -248,9 +248,6 @@ const HookScene: React.FC<{ text: string; duration: number; accent: string }> = 
     <AbsoluteFill style={{ opacity: exit }}>
       <BgMesh accent={accent} chrome />
       <Audio src={staticFile("audio/01_hook.mp3")} />
-      <Sequence from={0} durationInFrames={Math.min(24, duration)}>
-        <Audio src={staticFile("sfx/whoosh.wav")} volume={0.3} />
-      </Sequence>
 
       <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
         {/* Category Pill Tag */}
@@ -323,7 +320,7 @@ const KineticScene: React.FC<{ beat: Beat; duration: number; accent: string; ind
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const sentences = beat.narration_text.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
+  const sentences = (beat.narration_text || "").split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
   const active = Math.min(sentences.length - 1, Math.floor(frame / Math.max(1, duration / Math.max(1, sentences.length))));
   const hasAsset = Boolean(beat.asset_available);
 
@@ -331,9 +328,6 @@ const KineticScene: React.FC<{ beat: Beat; duration: number; accent: string; ind
     <AbsoluteFill>
       <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
       <SubjectImage name={beat.name} duration={duration} available={hasAsset} accent={accent} />
-      <Sequence from={2} durationInFrames={18}>
-        <Audio src={staticFile("sfx/pop.wav")} volume={0.25} />
-      </Sequence>
 
       <div style={{ position: "absolute", left: 60, top: 280, width: hasAsset ? 480 : 960 }}>
         <Entrance delay={0} distance={15}>
@@ -383,19 +377,16 @@ const StatScene: React.FC<{ beat: Beat; duration: number; accent: string; index:
   total,
 }) => {
   const frame = useCurrentFrame();
-  const match = beat.narration_text.match(/(\$)?(\d+[\d,.]*)(\s*(?:million|billion|trillion|M|B|%))?/i);
+  const match = (beat.narration_text || "").match(/(\$)?(\d+[\d,.]*)(\s*(?:million|billion|trillion|M|B|%))?/i);
   const prefix = match?.[1] || "";
   const numStr = match?.[2] ? match[2].replace(/,/g, "") : "100";
   const suffix = match?.[3] || "%";
   const numVal = parseFloat(numStr) || 100;
-  const remaining = beat.narration_text.replace(match?.[0] || "", "").trim();
+  const remaining = beat.narration_text ? beat.narration_text.replace(match?.[0] || "", "").trim() : "";
 
   return (
     <AbsoluteFill>
       <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
-      <Sequence from={6} durationInFrames={20}>
-        <Audio src={staticFile("sfx/ding.wav")} volume={0.3} />
-      </Sequence>
 
       <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
         <Entrance delay={0} distance={15}>
@@ -429,18 +420,15 @@ const DiagramScene: React.FC<{ beat: Beat; duration: number; accent: string; ind
   total,
 }) => {
   const frame = useCurrentFrame();
-  const words = beat.narration_text.split(" ");
-  const mid = Math.ceil(words.length / 2);
-  const boxA = words.slice(0, mid).join(" ");
-  const boxB = words.slice(mid).join(" ");
+  const words = (beat.narration_text || "").split(" ");
+  const mid = Math.max(1, Math.ceil(words.length / 2));
+  const boxA = words.slice(0, mid).join(" ") || "System Action";
+  const boxB = words.slice(mid).join(" ") || "Outcome";
   const progressLine = interpolate(frame, [18, 48], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   return (
     <AbsoluteFill>
       <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
-      <Sequence from={14} durationInFrames={18}>
-        <Audio src={staticFile("sfx/whoosh.wav")} volume={0.25} />
-      </Sequence>
 
       <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
         <Entrance delay={0} distance={15}>
@@ -522,9 +510,6 @@ const QuietScene: React.FC<{ beat: Beat; duration: number; accent: string }> = (
   return (
     <AbsoluteFill>
       <BgMesh accent={accent} chrome />
-      <Sequence from={4} durationInFrames={18}>
-        <Audio src={staticFile("sfx/ding.wav")} volume={0.2} />
-      </Sequence>
       <div style={{ position: "absolute", inset: "0 70px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
         <Entrance delay={0} distance={15}>
           <div style={{ width: 80, height: 4, background: accent, borderRadius: 2, marginBottom: 40 }} />
@@ -547,9 +532,6 @@ const OutroScene: React.FC<{ text: string; duration: number; accent: string }> =
     <AbsoluteFill>
       <BgMesh accent={accent} chrome />
       <Audio src={staticFile("audio/03_cta.mp3")} />
-      <Sequence from={2} durationInFrames={20}>
-        <Audio src={staticFile("sfx/ding.wav")} volume={0.3} />
-      </Sequence>
 
       <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
         {/* Animated Radial Spark Background behind Logo */}
