@@ -294,7 +294,7 @@ def main():
         encoded_topic = urllib.parse.quote(topic_prompt)
         feeds = [{
             "name": f"Trending: {topic_prompt}",
-            "url": f"https://news.google.com/rss/search?q={encoded_topic}",
+            "url": f"https://news.google.com/rss/search?q={encoded_topic}&hl=en-US&gl=US&ceid=US:en",
             "category": "trending",
             "enabled": True
         }]
