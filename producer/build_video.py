@@ -399,7 +399,8 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
         "src/index.ts",
         "ContentVideo",
         output,
-        "--concurrency=4",
+        "--concurrency=2",
+        "--gl=angle",
         "--props", str(render_dir / "script_with_timing.json"),
     ]
     if Path(chromium_path).exists():

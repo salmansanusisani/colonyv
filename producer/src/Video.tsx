@@ -36,12 +36,13 @@ interface VideoProps {
     body: string;
     cta: string;
     format?: string;
+    accent_color?: string;
     suggested_visual_beats: Beat[];
   };
 }
 
 const accentFor = (text: string) => {
-  const value = text.toLowerCase();
+  const value = (text || "").toLowerCase();
   if (/nvidia|jensen|gpu|blackwell|hardware|chip/.test(value)) return "#10B981"; // Emerald
   if (/anthropic|claude|startup|model/.test(value)) return "#F59E0B"; // Amber
   if (/gemini|google|deepmind/.test(value)) return "#3B82F6"; // Royal Blue
@@ -60,12 +61,12 @@ const Entrance: React.FC<{ delay?: number; distance?: number; children: React.Re
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const p = spring({ frame: frame - delay, fps, config: theme.spring.smooth });
+  const p = Math.max(0, spring({ frame: frame - delay, fps, config: theme.spring.smooth }));
   return (
     <div
       style={{
-        opacity: p,
-        transform: `translateY(${interpolate(p, [0, 1], [distance, 0])}px) scale(${interpolate(p, [0, 1], [0.94, 1])})`,
+        opacity: Math.min(1, p),
+        transform: `translateY(${interpolate(p, [0, 1], [distance, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px) scale(${interpolate(p, [0, 1], [0.94, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })})`,
         ...style,
       }}
     >
@@ -92,7 +93,7 @@ const BgMesh: React.FC<{ accent: string; progress?: number; chrome?: boolean }> 
           opacity: 0.6,
         }}
       />
-      {/* Drifting Radial Glowing Orbs */}
+      {/* Drifting Radial Glowing Orbs - High Performance Pure CSS Gradients (0% Chromium Crash) */}
       <div
         style={{
           position: "absolute",
@@ -101,8 +102,7 @@ const BgMesh: React.FC<{ accent: string; progress?: number; chrome?: boolean }> 
           borderRadius: "50%",
           top: -250,
           left: -200 + d1,
-          filter: "blur(90px)",
-          background: `radial-gradient(circle, ${accent}33, transparent 65%)`,
+          background: `radial-gradient(circle, ${accent}2e 0%, ${accent}14 42%, transparent 70%)`,
         }}
       />
       <div
@@ -113,8 +113,7 @@ const BgMesh: React.FC<{ accent: string; progress?: number; chrome?: boolean }> 
           borderRadius: "50%",
           bottom: -200,
           right: -200 - d2,
-          filter: "blur(100px)",
-          background: `radial-gradient(circle, ${accent}22, transparent 68%)`,
+          background: `radial-gradient(circle, ${accent}22 0%, ${accent}0d 45%, transparent 70%)`,
         }}
       />
 
@@ -141,12 +140,12 @@ const RadialSpark: React.FC<{ size?: number; accent: string; delay?: number }> =
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const rays = 12;
-  const rot = interpolate(frame, [0, 180], [0, 90]);
+  const rot = interpolate(frame, [0, 180], [0, 90], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   return (
     <div style={{ position: "relative", width: size, height: size, transform: `rotate(${rot}deg)` }}>
       {Array.from({ length: rays }).map((_, i) => {
-        const p = spring({ frame: frame - delay - i * 1.5, fps, config: theme.spring.snappy });
+        const p = Math.max(0, spring({ frame: frame - delay - i * 1.5, fps, config: theme.spring.snappy }));
         return (
           <div
             key={i}
@@ -155,12 +154,11 @@ const RadialSpark: React.FC<{ size?: number; accent: string; delay?: number }> =
               left: "50%",
               top: "50%",
               width: size * 0.04,
-              height: size * 0.42 * p,
+              height: Math.max(0, size * 0.42 * p),
               background: accent,
               borderRadius: size,
               transformOrigin: "50% 0%",
               transform: `translateX(-50%) rotate(${(360 / rays) * i}deg) translateY(${size * 0.08}px)`,
-              boxShadow: `0 0 12px ${accent}`,
             }}
           />
         );
@@ -175,7 +173,7 @@ const SubjectImage: React.FC<{ name: string; duration: number; available?: boole
   const { fps } = useVideoConfig();
   if (!available) return null;
 
-  const reveal = spring({ frame: frame - 6, fps, config: theme.spring.smooth });
+  const reveal = Math.max(0, Math.min(1, spring({ frame: frame - 6, fps, config: theme.spring.smooth })));
   const scale = interpolate(frame, [0, duration], [1.0, 1.08], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const pan = interpolate(frame, [0, duration], [0, -20], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const breathe = Math.sin(frame / 60) * 6;
@@ -192,7 +190,7 @@ const SubjectImage: React.FC<{ name: string; duration: number; available?: boole
         overflow: "hidden",
         border: `1px solid ${theme.colors.bgCardBorder}`,
         background: theme.colors.bgCard,
-        boxShadow: `0 30px 80px rgba(0,0,0,0.6), 0 0 40px ${accent}22`,
+        boxShadow: `0 16px 40px rgba(0,0,0,0.5)`,
         opacity: reveal,
         transform: `translateY(${(1 - reveal) * 40 + breathe}px) scale(${0.92 + reveal * 0.08})`,
       }}
@@ -209,7 +207,7 @@ const SubjectImage: React.FC<{ name: string; duration: number; available?: boole
       {/* Inner Vignette / Grade */}
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 60%, rgba(10,10,15,0.8) 100%)" }} />
       <div style={{ position: "absolute", bottom: 18, left: 18, right: 18, display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent, boxShadow: `0 0 8px ${accent}` }} />
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent }} />
         <span style={{ fontFamily: theme.fonts.display, fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: 1.5, textTransform: "uppercase" }}>Verified Source</span>
       </div>
     </div>
@@ -277,7 +275,7 @@ const HookScene: React.FC<{ text: string; duration: number; accent: string }> = 
         <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 20px", maxWidth: 960 }}>
           {words.map((word, i) => {
             const isHero = i >= words.length - 3;
-            const p = spring({ frame: frame - 6 - i * 2.5, fps, config: theme.spring.snappy });
+            const p = Math.max(0, Math.min(1, spring({ frame: frame - 6 - i * 2.5, fps, config: theme.spring.snappy })));
             return (
               <span
                 key={i}
@@ -289,9 +287,8 @@ const HookScene: React.FC<{ text: string; duration: number; accent: string }> = 
                   letterSpacing: -2.5,
                   lineHeight: 1.05,
                   color: isHero ? accent : theme.colors.text,
-                  textShadow: isHero ? `0 0 40px ${accent}66` : "none",
                   opacity: p,
-                  transform: `translateY(${interpolate(p, [0, 1], [30, 0])}px) scale(${interpolate(p, [0, 1], [0.92, 1])})`,
+                  transform: `translateY(${interpolate(p, [0, 1], [30, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px) scale(${interpolate(p, [0, 1], [0.92, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })})`,
                 }}
               >
                 {word}
@@ -348,7 +345,7 @@ const KineticScene: React.FC<{ beat: Beat; duration: number; accent: string; ind
 
         {sentences.map((sentence, i) => {
           const isCurrent = i === active;
-          const p = spring({ frame: frame - i * 16, fps, config: theme.spring.smooth });
+          const p = Math.max(0, Math.min(1, spring({ frame: frame - i * 16, fps, config: theme.spring.smooth })));
           return (
             <div
               key={sentence}
@@ -364,7 +361,7 @@ const KineticScene: React.FC<{ beat: Beat; duration: number; accent: string; ind
                 background: isCurrent ? "rgba(255,255,255,0.04)" : "transparent",
                 border: isCurrent ? `1px solid ${accent}44` : "1px solid transparent",
                 opacity: p,
-                transform: `translateX(${interpolate(p, [0, 1], [-25, 0])}px)`,
+                transform: `translateX(${interpolate(p, [0, 1], [-25, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px)`,
                 transition: "all 0.2s ease",
               }}
             >
@@ -408,7 +405,7 @@ const StatScene: React.FC<{ beat: Beat; duration: number; accent: string; index:
         </Entrance>
 
         <Entrance delay={4} distance={30}>
-          <div style={{ background: theme.colors.bgCard, padding: "36px 44px", borderRadius: 32, border: `1px solid ${accent}44`, boxShadow: `0 30px 80px rgba(0,0,0,0.5), 0 0 50px ${accent}22`, marginBottom: 36 }}>
+          <div style={{ background: theme.colors.bgCard, padding: "36px 44px", borderRadius: 32, border: `1px solid ${accent}44`, boxShadow: `0 16px 40px rgba(0,0,0,0.5)`, marginBottom: 36 }}>
             <AnimatedCounter target={numVal} prefix={prefix} suffix={suffix} accent={accent} delay={6} />
           </div>
         </Entrance>
@@ -466,7 +463,7 @@ const DiagramScene: React.FC<{ beat: Beat; duration: number; accent: string; ind
 
           {/* Node 2 */}
           <Entrance delay={20} distance={30}>
-            <div style={{ padding: "32px 36px", background: theme.colors.bgCard, borderRadius: 24, border: `1px solid ${accent}66`, boxShadow: `0 0 30px ${accent}22`, display: "flex", alignItems: "center", gap: 20 }}>
+            <div style={{ padding: "32px 36px", background: theme.colors.bgCard, borderRadius: 24, border: `2px solid ${accent}`, display: "flex", alignItems: "center", gap: 20 }}>
               <div style={{ width: 44, height: 44, borderRadius: "50%", background: accent, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: "#fff" }}>02</div>
               <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 800, color: accent, lineHeight: 1.3 }}>{boxB}</div>
             </div>
@@ -486,6 +483,7 @@ const TimelineScene: React.FC<{ beat: Beat; duration: number; accent: string; in
   total,
 }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const events = beat.narration_text.split(/\s*\|\s*|(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
   const line = interpolate(frame, [10, duration * 0.6], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
@@ -504,14 +502,15 @@ const TimelineScene: React.FC<{ beat: Beat; duration: number; accent: string; in
             <div style={{ width: "100%", height: `${line}%`, background: accent, boxShadow: `0 0 10px ${accent}` }} />
           </div>
 
-          {events.map((event, i) => (
-            <Entrance key={i} delay={8 + i * 14} distance={25}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 28, paddingLeft: 8 }}>
+          {events.map((event, i) => {
+            const p = Math.max(0, Math.min(1, spring({ frame: frame - 8 - i * 14, fps, config: theme.spring.smooth })));
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 28, paddingLeft: 8, opacity: p, transform: `translateY(${interpolate(p, [0, 1], [25, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px)` }}>
                 <div style={{ width: 24, height: 24, borderRadius: "50%", background: i === 0 ? accent : theme.colors.bgCard, border: `2px solid ${accent}`, boxShadow: i === 0 ? `0 0 14px ${accent}` : "none", flexShrink: 0, marginTop: 4 }} />
                 <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 650, lineHeight: 1.35, color: theme.colors.text }}>{event}</div>
               </div>
-            </Entrance>
-          ))}
+            );
+          })}
         </div>
       </div>
     </AbsoluteFill>
@@ -574,7 +573,7 @@ const OutroScene: React.FC<{ text: string; duration: number; accent: string }> =
               fontSize: 36,
               fontWeight: 900,
               color: "#fff",
-              boxShadow: `0 0 40px ${accent}55`,
+              boxShadow: `0 8px 24px rgba(0,0,0,0.5)`,
               position: "relative",
               zIndex: 2,
             }}
@@ -605,7 +604,6 @@ const OutroScene: React.FC<{ text: string; duration: number; accent: string }> =
               fontSize: 18,
               fontWeight: 900,
               letterSpacing: 2,
-              boxShadow: `0 0 35px ${accent}66`,
             }}
           >
             SUBSCRIBE FOR DAILY BREAKTHROUGHS
@@ -622,23 +620,25 @@ const Vignette: React.FC = () => (
 );
 
 export const ContentVideo: React.FC<VideoProps> = ({ script }) => {
-  const allText = `${script.hook} ${script.body}`;
-  const accent = accentFor(allText);
-  const beatKeys = Object.keys(beats);
-  const bodyFrames = Object.values(beats).reduce((sum, value) => sum + value, 0);
+  const allText = `${script?.hook || ""} ${script?.body || ""}`;
+  const accent = script?.accent_color || accentFor(allText);
+  const beatKeys = Object.keys(beats || {});
+  const bodyFrames = Object.values(beats || {}).reduce((sum, value) => sum + value, 0);
   const totalFrames = hookFrames + bodyFrames + outroFrames;
   let cursor = hookFrames;
+
+  const visualBeats = script?.suggested_visual_beats || [];
 
   return (
     <AbsoluteFill style={{ background: theme.colors.bg }}>
       <Sequence from={0} durationInFrames={hookFrames}>
-        <HookScene text={script.hook} duration={hookFrames} accent={accent} />
+        <HookScene text={script?.hook || ""} duration={hookFrames} accent={accent} />
       </Sequence>
       {beatKeys.map((name, index) => {
-        const duration = beats[name];
+        const duration = (beats && beats[name]) || 90;
         const from = cursor;
         cursor += duration;
-        const beat = script.suggested_visual_beats.find((item) => item.name === name) || script.suggested_visual_beats[index] || { name, narration_text: "" };
+        const beat = visualBeats.find((item) => item.name === name) || visualBeats[index] || { name, narration_text: "" };
         const type = beat.beat_type || "kinetic_text";
         const Scene =
           beat.visual_style === "timeline"
@@ -659,7 +659,7 @@ export const ContentVideo: React.FC<VideoProps> = ({ script }) => {
         );
       })}
       <Sequence from={totalFrames - outroFrames} durationInFrames={outroFrames}>
-        <OutroScene text={script.cta} duration={outroFrames} accent={accent} />
+        <OutroScene text={script?.cta || ""} duration={outroFrames} accent={accent} />
       </Sequence>
 
       {/* Topmost Cinematic Vignette Layer */}
