@@ -8,25 +8,23 @@ import {
   spring,
   staticFile,
   useCurrentFrame,
+  useVideoConfig,
 } from "remotion";
 import timing from "./timing.json";
+import { theme } from "./theme";
 
-const {hookFrames, outroFrames, beats} = timing as {
+const { hookFrames, outroFrames, beats } = timing as {
   hookFrames: number;
   outroFrames: number;
   beats: Record<string, number>;
 };
-
-const INK = "#0a0a0b";
-const PAPER = "#f8f8f6";
-const MUTED = "#68686d";
-const LINE = "rgba(10,10,11,.12)";
 
 type Beat = {
   name: string;
   narration_text: string;
   beat_type?: string;
   image_url?: string;
+  asset_source_url?: string;
   asset_available?: boolean;
   image_treatment?: string;
   visual_style?: "editorial" | "image_led" | "stat_led" | "diagram" | "timeline" | "quiet";
@@ -44,208 +42,586 @@ interface VideoProps {
 
 const accentFor = (text: string) => {
   const value = text.toLowerCase();
-  if (/nvidia|jensen|gpu|blackwell/.test(value)) return "#76b900";
-  if (/anthropic|claude/.test(value)) return "#d97757";
-  if (/gemini|google/.test(value)) return "#4285f4";
-  if (/bitcoin|crypto|ethereum/.test(value)) return "#f7931a";
-  if (/openai|gpt/.test(value)) return "#10a37f";
-  if (/warning|risk|loss|ban|crisis/.test(value)) return "#e5484d";
-  return "#246bfd";
+  if (/nvidia|jensen|gpu|blackwell|hardware|chip/.test(value)) return "#10B981"; // Emerald
+  if (/anthropic|claude|startup|model/.test(value)) return "#F59E0B"; // Amber
+  if (/gemini|google|deepmind/.test(value)) return "#3B82F6"; // Royal Blue
+  if (/bitcoin|crypto|ethereum|blockchain/.test(value)) return "#F97316"; // Bright Orange
+  if (/openai|gpt|altman/.test(value)) return "#06B6D4"; // Cyan
+  if (/warning|risk|loss|ban|crisis|hack/.test(value)) return "#EF4444"; // Red
+  return "#8B5CF6"; // Vibrant Violet default
 };
 
-const enter = (frame: number, delay = 0, distance = 32) => {
-  const value = spring({frame: frame - delay, fps: 30, config: {damping: 16, stiffness: 120, mass: 0.6}});
-  return {opacity: value, transform: `translateY(${(1 - value) * distance}px) scale(${0.96 + (value * 0.04)})`};
-};
-
-const SceneBackground: React.FC<{accent: string; progress?: number; variant?: string; chrome?: boolean}> = ({accent, progress = 0, variant = "editorial", chrome = false}) => {
+// --- Component 1: Multi-Property Spring Entrance (Rule 2) ---
+const Entrance: React.FC<{ delay?: number; distance?: number; children: React.ReactNode; style?: React.CSSProperties }> = ({
+  delay = 0,
+  distance = 35,
+  children,
+  style,
+}) => {
   const frame = useCurrentFrame();
-  const x = Math.sin(frame / 60) * 40;
-  const y = Math.cos(frame / 70) * 35;
+  const { fps } = useVideoConfig();
+  const p = spring({ frame: frame - delay, fps, config: theme.spring.smooth });
   return (
-    <AbsoluteFill style={{background: variant === "quiet" ? "#ffffff" : PAPER, overflow: "hidden"}}>
-      {(variant === "editorial" || variant === "diagram") && <div style={{position: "absolute", inset: 0, backgroundImage: `linear-gradient(${LINE} 1px, transparent 1px), linear-gradient(90deg, ${LINE} 1px, transparent 1px)`, backgroundSize: variant === "diagram" ? "72px 72px" : "96px 96px", opacity: variant === "diagram" ? .22 : .13}} />}
-      
-      {/* Drifting gradient mesh (Rule 5 & 7) */}
-      {(variant === "editorial" || variant === "image_led") && (
-        <>
-          <div style={{position: "absolute", width: 900, height: 900, left: -200 + x, top: -200 + y, borderRadius: "50%", background: accent, opacity: .05, filter: "blur(80px)"}} />
-          <div style={{position: "absolute", width: 900, height: 900, right: -200 - x, bottom: -200 - y, borderRadius: "50%", background: accent, opacity: .06, filter: "blur(90px)"}} />
-        </>
-      )}
-      {chrome && <>
-        <div style={{position: "absolute", left: 58, right: 58, top: 54, height: 4, borderRadius: 4, background: "rgba(10,10,11,.08)"}}><div style={{height: "100%", width: `${Math.max(2, progress * 100)}%`, background: accent, borderRadius: 4}} /></div>
-        <div style={{position: "absolute", left: 58, top: 84, fontFamily: "Arial, sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: 4, color: INK}}>COLONY V</div>
-        <div style={{position: "absolute", right: 58, top: 84, fontFamily: "Arial, sans-serif", fontSize: 16, color: MUTED}}>INTELLIGENCE BRIEF</div>
-      </>}
-    </AbsoluteFill>
-  );
-};
-
-const SubjectImage: React.FC<{name: string; duration: number; side?: "left" | "right"; available?: boolean; treatment?: string}> = ({name, duration, side = "right", available = true, treatment = "editorial_frame"}) => {
-  if (!available) return null;
-  const frame = useCurrentFrame();
-  const reveal = spring({frame: frame - 8, fps: 30, config: {damping: 20, stiffness: 90}});
-  
-  // Subtle drift (Rule 7: idle elements breathe)
-  const xDrift = Math.sin(frame / 120) * 10;
-  const yDrift = Math.cos(frame / 100) * 5;
-  
-  // Proper Ken Burns (Rule 6)
-  const scale = interpolate(frame, [0, duration], [1.0, 1.08], {extrapolateRight: "clamp", extrapolateLeft: "clamp"});
-
-  return (
-    <div style={{position: "absolute", top: treatment === "logo_mark" ? 420 : 250, [side]: treatment === "logo_mark" ? 70 : -70, width: treatment === "logo_mark" ? 420 : 660, height: treatment === "logo_mark" ? 260 : 1100, overflow: "hidden", borderRadius: treatment === "logo_mark" ? 0 : 44, background: treatment === "logo_mark" ? "transparent" : "#fff", boxShadow: "0 24px 64px rgba(0,0,0,0.12)", border: "1px solid rgba(0,0,0,0.06)", opacity: reveal, transform: `translateX(${(1 - reveal) * (side === "right" ? 70 : -70)}px) translateY(${yDrift}px)`}}>
-      <Img src={staticFile(`images/${name}.png`)} style={{width: "100%", height: "100%", objectFit: treatment === "logo_mark" ? "contain" : "cover", transform: treatment === "logo_mark" ? `scale(${.9 + reveal * .1})` : `scale(${scale}) translateX(${xDrift}px)`, filter: "saturate(.98) contrast(1.02)"}} />
-      {treatment !== "logo_mark" && <div style={{position: "absolute", inset: 0, background: side === "right" ? "linear-gradient(90deg, #f8f8f6 0%, transparent 38%)" : "linear-gradient(270deg, #f8f8f6 0%, transparent 38%)"}} />}
+    <div
+      style={{
+        opacity: p,
+        transform: `translateY(${interpolate(p, [0, 1], [distance, 0])}px) scale(${interpolate(p, [0, 1], [0.94, 1])})`,
+        ...style,
+      }}
+    >
+      {children}
     </div>
   );
 };
 
-const HookScene: React.FC<{text: string; duration: number; accent: string}> = ({text, duration, accent}) => {
+// --- Component 2: Background Mesh (Rule 5 & 7: Never Flat) ---
+const BgMesh: React.FC<{ accent: string; progress?: number; chrome?: boolean }> = ({ accent, progress = 0, chrome = false }) => {
   const frame = useCurrentFrame();
-  const words = text.split(" ");
-  const focusIndex = Math.max(0, words.length - 2);
-  const exit = interpolate(frame, [duration - 10, duration], [1, 0], {extrapolateLeft: "clamp"});
+  const d1 = Math.sin(frame / 60) * 45;
+  const d2 = Math.cos(frame / 75) * 40;
+
   return (
-    <AbsoluteFill style={{padding: "0 64px", opacity: exit}}>
-      <SceneBackground accent={accent} variant="editorial" chrome />
-      <Audio src={staticFile("audio/01_hook.mp3")} />
-      <Sequence from={0} durationInFrames={Math.min(24, duration)}><Audio src={staticFile("sfx/whoosh.wav")} volume={.28} /></Sequence>
-      <div style={{position: "absolute", left: 64, top: 310, ...enter(frame, 2)}}>
-        <div style={{display: "inline-flex", alignItems: "center", gap: 10, fontFamily: "Arial, sans-serif", fontWeight: 700, fontSize: 18, color: accent, letterSpacing: 2}}><span style={{width: 28, height: 3, background: accent}} />BREAKING SIGNAL</div>
-      </div>
-      <div style={{position: "absolute", left: 64, right: 64, top: 445, fontFamily: "Arial, sans-serif", fontSize: 76, lineHeight: 1.04, fontWeight: 900, letterSpacing: -3, color: INK}}>
-        {words.map((word, index) => <span key={`${word}-${index}`} style={{display: "inline-block", marginRight: 18, color: index >= focusIndex ? accent : INK, ...enter(frame, 7 + index * 2, 42)}}>{word}</span>)}
-      </div>
-      <div style={{position: "absolute", left: 64, bottom: 200, width: interpolate(frame, [10, 34], [0, 620], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}), height: 2, background: accent}} />
+    <AbsoluteFill style={{ background: theme.colors.bg, overflow: "hidden" }}>
+      {/* Subtle Grid Grid Pattern */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
+          backgroundSize: "80px 80px",
+          opacity: 0.6,
+        }}
+      />
+      {/* Drifting Radial Glowing Orbs */}
+      <div
+        style={{
+          position: "absolute",
+          width: 900,
+          height: 900,
+          borderRadius: "50%",
+          top: -250,
+          left: -200 + d1,
+          filter: "blur(90px)",
+          background: `radial-gradient(circle, ${accent}33, transparent 65%)`,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          width: 800,
+          height: 800,
+          borderRadius: "50%",
+          bottom: -200,
+          right: -200 - d2,
+          filter: "blur(100px)",
+          background: `radial-gradient(circle, ${accent}22, transparent 68%)`,
+        }}
+      />
+
+      {chrome && (
+        <>
+          <div style={{ position: "absolute", left: 60, right: 60, top: 60, height: 4, borderRadius: 4, background: "rgba(255,255,255,0.1)" }}>
+            <div style={{ height: "100%", width: `${Math.max(4, progress * 100)}%`, background: accent, borderRadius: 4, boxShadow: `0 0 12px ${accent}` }} />
+          </div>
+          <div style={{ position: "absolute", left: 60, top: 86, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: accent, boxShadow: `0 0 10px ${accent}` }} />
+            <span style={{ fontFamily: theme.fonts.display, fontWeight: 800, fontSize: 18, letterSpacing: 3, color: theme.colors.text }}>COLONY V</span>
+          </div>
+          <div style={{ position: "absolute", right: 60, top: 86, fontFamily: theme.fonts.display, fontWeight: 600, fontSize: 14, letterSpacing: 2, color: theme.colors.textMuted }}>
+            AI INTELLIGENCE
+          </div>
+        </>
+      )}
     </AbsoluteFill>
   );
 };
 
-const KineticScene: React.FC<{beat: Beat; duration: number; accent: string; index: number; total: number}> = ({beat, duration, accent, index, total}) => {
+// --- Component 3: Radial Spark / Logo Mark (Pattern 10) ---
+const RadialSpark: React.FC<{ size?: number; accent: string; delay?: number }> = ({ size = 200, accent, delay = 0 }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const rays = 12;
+  const rot = interpolate(frame, [0, 180], [0, 90]);
+
+  return (
+    <div style={{ position: "relative", width: size, height: size, transform: `rotate(${rot}deg)` }}>
+      {Array.from({ length: rays }).map((_, i) => {
+        const p = spring({ frame: frame - delay - i * 1.5, fps, config: theme.spring.snappy });
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              width: size * 0.04,
+              height: size * 0.42 * p,
+              background: accent,
+              borderRadius: size,
+              transformOrigin: "50% 0%",
+              transform: `translateX(-50%) rotate(${(360 / rays) * i}deg) translateY(${size * 0.08}px)`,
+              boxShadow: `0 0 12px ${accent}`,
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
+// --- Component 4: Editorial Card with Ken Burns Zoom & Pan (Rule 6) ---
+const SubjectImage: React.FC<{ name: string; duration: number; available?: boolean; accent: string }> = ({ name, duration, available = true, accent }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  if (!available) return null;
+
+  const reveal = spring({ frame: frame - 6, fps, config: theme.spring.smooth });
+  const scale = interpolate(frame, [0, duration], [1.0, 1.08], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const pan = interpolate(frame, [0, duration], [0, -20], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const breathe = Math.sin(frame / 60) * 6;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 280,
+        right: 60,
+        width: 440,
+        height: 640,
+        borderRadius: 28,
+        overflow: "hidden",
+        border: `1px solid ${theme.colors.bgCardBorder}`,
+        background: theme.colors.bgCard,
+        boxShadow: `0 30px 80px rgba(0,0,0,0.6), 0 0 40px ${accent}22`,
+        opacity: reveal,
+        transform: `translateY(${(1 - reveal) * 40 + breathe}px) scale(${0.92 + reveal * 0.08})`,
+      }}
+    >
+      <Img
+        src={staticFile(`images/${name}.png`)}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          transform: `scale(${scale}) translateX(${pan}px)`,
+        }}
+      />
+      {/* Inner Vignette / Grade */}
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 60%, rgba(10,10,15,0.8) 100%)" }} />
+      <div style={{ position: "absolute", bottom: 18, left: 18, right: 18, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent, boxShadow: `0 0 8px ${accent}` }} />
+        <span style={{ fontFamily: theme.fonts.display, fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: 1.5, textTransform: "uppercase" }}>Verified Source</span>
+      </div>
+    </div>
+  );
+};
+
+// --- Component 5: Animated Number Counter (Pattern 9) ---
+const AnimatedCounter: React.FC<{ target: number; prefix?: string; suffix?: string; accent: string; delay?: number }> = ({
+  target,
+  prefix = "",
+  suffix = "",
+  accent,
+  delay = 6,
+}) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const p = spring({ frame: frame - delay, fps, config: { damping: 24, stiffness: 80 } });
+  const current = interpolate(p, [0, 1], [0, target]);
+
+  return (
+    <div style={{ fontFamily: theme.fonts.display, fontSize: 140, fontWeight: 900, color: theme.colors.text, letterSpacing: -5, lineHeight: 1 }}>
+      <span style={{ color: accent }}>{prefix}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{target % 1 === 0 ? Math.round(current) : current.toFixed(1)}</span>
+      <span style={{ color: accent, fontSize: 80, marginLeft: 8 }}>{suffix}</span>
+    </div>
+  );
+};
+
+// --- Component 6: Kinetic Hook Scene ---
+const HookScene: React.FC<{ text: string; duration: number; accent: string }> = ({ text, duration, accent }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const words = text.split(" ");
+  const exit = interpolate(frame, [duration - 10, duration], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+
+  return (
+    <AbsoluteFill style={{ opacity: exit }}>
+      <BgMesh accent={accent} chrome />
+      <Audio src={staticFile("audio/01_hook.mp3")} />
+      <Sequence from={0} durationInFrames={Math.min(24, duration)}>
+        <Audio src={staticFile("sfx/whoosh.wav")} volume={0.3} />
+      </Sequence>
+
+      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        {/* Category Pill Tag */}
+        <Entrance delay={0} distance={20}>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 18px",
+              background: `${accent}22`,
+              border: `1px solid ${accent}55`,
+              borderRadius: 30,
+              marginBottom: 36,
+            }}
+          >
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent, boxShadow: `0 0 10px ${accent}` }} />
+            <span style={{ fontFamily: theme.fonts.display, fontWeight: 800, fontSize: 15, letterSpacing: 2.5, color: accent }}>BREAKING SIGNAL</span>
+          </div>
+        </Entrance>
+
+        {/* Big Staggered Headline Reveal */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 20px", maxWidth: 960 }}>
+          {words.map((word, i) => {
+            const isHero = i >= words.length - 3;
+            const p = spring({ frame: frame - 6 - i * 2.5, fps, config: theme.spring.snappy });
+            return (
+              <span
+                key={i}
+                style={{
+                  display: "inline-block",
+                  fontFamily: theme.fonts.display,
+                  fontSize: 72,
+                  fontWeight: 900,
+                  letterSpacing: -2.5,
+                  lineHeight: 1.05,
+                  color: isHero ? accent : theme.colors.text,
+                  textShadow: isHero ? `0 0 40px ${accent}66` : "none",
+                  opacity: p,
+                  transform: `translateY(${interpolate(p, [0, 1], [30, 0])}px) scale(${interpolate(p, [0, 1], [0.92, 1])})`,
+                }}
+              >
+                {word}
+              </span>
+            );
+          })}
+        </div>
+
+        {/* Glowing Progress Accent Bar */}
+        <div
+          style={{
+            marginTop: 48,
+            width: interpolate(frame, [8, 36], [0, 480], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }),
+            height: 4,
+            background: `linear-gradient(90deg, ${accent}, transparent)`,
+            borderRadius: 2,
+            boxShadow: `0 0 15px ${accent}`,
+          }}
+        />
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+// --- Component 7: Kinetic Editorial Scene ---
+const KineticScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
+  beat,
+  duration,
+  accent,
+  index,
+  total,
+}) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const sentences = beat.narration_text.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
   const active = Math.min(sentences.length - 1, Math.floor(frame / Math.max(1, duration / Math.max(1, sentences.length))));
+  const hasAsset = Boolean(beat.asset_available);
+
   return (
     <AbsoluteFill>
-      <SceneBackground accent={accent} variant={beat.visual_style === "image_led" ? "image_led" : beat.visual_style === "quiet" ? "quiet" : "editorial"} progress={(index + frame / duration) / total} />
-      <SubjectImage name={beat.name} duration={duration} treatment={beat.image_treatment} available={Boolean(beat.asset_available)} />
-      <Sequence from={3} durationInFrames={18}><Audio src={staticFile("sfx/pop.wav")} volume={.22} /></Sequence>
-      <div style={{position: "absolute", left: 64, top: 300, width: 700}}>
-        <div style={{fontFamily: "Arial, sans-serif", color: accent, fontSize: 17, fontWeight: 800, letterSpacing: 2, marginBottom: 34, ...enter(frame, 0)}}>WHAT IT MEANS</div>
+      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
+      <SubjectImage name={beat.name} duration={duration} available={hasAsset} accent={accent} />
+      <Sequence from={2} durationInFrames={18}>
+        <Audio src={staticFile("sfx/pop.wav")} volume={0.25} />
+      </Sequence>
+
+      <div style={{ position: "absolute", left: 60, top: 280, width: hasAsset ? 480 : 960 }}>
+        <Entrance delay={0} distance={15}>
+          <div style={{ fontFamily: theme.fonts.display, color: accent, fontSize: 16, fontWeight: 800, letterSpacing: 2.5, marginBottom: 30, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ width: 24, height: 2, background: accent }} />
+            <span>KEY TAKEAWAY</span>
+          </div>
+        </Entrance>
+
         {sentences.map((sentence, i) => {
-          // Staggered choregraphy (Rule 3)
-          const visible = spring({frame: frame - i * 18, fps: 30, config: {damping: 16, stiffness: 120}});
-          const exit = interpolate(frame, [duration - 10, duration], [1, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
-          return <div key={sentence} style={{fontFamily: "Arial, sans-serif", fontSize: i === active ? 47 : 34, lineHeight: 1.2, fontWeight: i === active ? 800 : 600, color: i === active ? INK : "rgba(10,10,11,.28)", marginBottom: 34, opacity: visible * exit, transform: `translateX(${(1-visible) * -28}px)`, transition: "none"}}><span style={{color: i === active ? accent : "transparent", marginRight: 14}}>—</span>{sentence}</div>;
+          const isCurrent = i === active;
+          const p = spring({ frame: frame - i * 16, fps, config: theme.spring.smooth });
+          return (
+            <div
+              key={sentence}
+              style={{
+                fontFamily: theme.fonts.display,
+                fontSize: isCurrent ? 44 : 32,
+                lineHeight: 1.25,
+                fontWeight: isCurrent ? 800 : 500,
+                color: isCurrent ? theme.colors.text : theme.colors.textMuted,
+                marginBottom: 28,
+                padding: "16px 20px",
+                borderRadius: 18,
+                background: isCurrent ? "rgba(255,255,255,0.04)" : "transparent",
+                border: isCurrent ? `1px solid ${accent}44` : "1px solid transparent",
+                opacity: p,
+                transform: `translateX(${interpolate(p, [0, 1], [-25, 0])}px)`,
+                transition: "all 0.2s ease",
+              }}
+            >
+              {sentence}
+            </div>
+          );
         })}
       </div>
     </AbsoluteFill>
   );
 };
 
-const StatScene: React.FC<{beat: Beat; duration: number; accent: string; index: number; total: number}> = ({beat, duration, accent, index, total}) => {
+// --- Component 8: Stat / Data Scene (Pattern 9) ---
+const StatScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
+  beat,
+  duration,
+  accent,
+  index,
+  total,
+}) => {
   const frame = useCurrentFrame();
-  const match = beat.narration_text.match(/(?:\$)?\d[\d,.]*(?:\s?(?:million|billion|trillion|M|B))?(?:\s+dollars?)?(?:%|\b)/i);
-  const stat = match?.[0] || "KEY";
-  const remaining = beat.narration_text.replace(stat, "").trim();
-  const reveal = spring({frame: frame - 10, fps: 30, config: {damping: 13, stiffness: 100}});
+  const match = beat.narration_text.match(/(\$)?(\d+[\d,.]*)(\s*(?:million|billion|trillion|M|B|%))?/i);
+  const prefix = match?.[1] || "";
+  const numStr = match?.[2] ? match[2].replace(/,/g, "") : "100";
+  const suffix = match?.[3] || "%";
+  const numVal = parseFloat(numStr) || 100;
+  const remaining = beat.narration_text.replace(match?.[0] || "", "").trim();
+
   return (
     <AbsoluteFill>
-      <SceneBackground accent={accent} variant="quiet" progress={(index + frame / duration) / total} />
-      <Sequence from={8} durationInFrames={20}><Audio src={staticFile("sfx/ding.wav")} volume={.25} /></Sequence>
-      <div style={{position: "absolute", inset: "300px 64px 220px", display: "flex", flexDirection: "column", justifyContent: "center"}}>
-        <div style={{fontFamily: "Arial, sans-serif", fontSize: 18, fontWeight: 800, letterSpacing: 3, color: accent, ...enter(frame, 2)}}>THE NUMBER TO KNOW</div>
-        <div style={{fontFamily: "Arial, sans-serif", fontSize: 190, lineHeight: 1, fontWeight: 900, letterSpacing: -9, color: INK, transform: `scale(${.88 + reveal * .12})`, transformOrigin: "left center", opacity: reveal, margin: "44px 0 38px"}}>{stat}</div>
-        <div style={{width: interpolate(frame, [13, 38], [0, 760], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}), height: 8, background: accent, marginBottom: 42}} />
-        <div style={{fontFamily: "Arial, sans-serif", fontSize: 40, lineHeight: 1.3, fontWeight: 650, maxWidth: 850, color: INK, ...enter(frame, 26)}}>{remaining}</div>
+      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
+      <Sequence from={6} durationInFrames={20}>
+        <Audio src={staticFile("sfx/ding.wav")} volume={0.3} />
+      </Sequence>
+
+      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <Entrance delay={0} distance={15}>
+          <div style={{ fontFamily: theme.fonts.display, fontSize: 16, fontWeight: 800, letterSpacing: 3, color: accent, marginBottom: 20 }}>
+            CRITICAL DATA POINT
+          </div>
+        </Entrance>
+
+        <Entrance delay={4} distance={30}>
+          <div style={{ background: theme.colors.bgCard, padding: "36px 44px", borderRadius: 32, border: `1px solid ${accent}44`, boxShadow: `0 30px 80px rgba(0,0,0,0.5), 0 0 50px ${accent}22`, marginBottom: 36 }}>
+            <AnimatedCounter target={numVal} prefix={prefix} suffix={suffix} accent={accent} delay={6} />
+          </div>
+        </Entrance>
+
+        <Entrance delay={14} distance={25}>
+          <div style={{ fontFamily: theme.fonts.display, fontSize: 38, lineHeight: 1.35, fontWeight: 600, color: theme.colors.text, maxWidth: 900 }}>
+            {remaining}
+          </div>
+        </Entrance>
       </div>
     </AbsoluteFill>
   );
 };
 
-const DiagramScene: React.FC<{beat: Beat; duration: number; accent: string; index: number; total: number}> = ({beat, duration, accent, index, total}) => {
+// --- Component 9: Diagram / Logic Flow Scene (Pattern 10 & 13) ---
+const DiagramScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
+  beat,
+  duration,
+  accent,
+  index,
+  total,
+}) => {
   const frame = useCurrentFrame();
   const words = beat.narration_text.split(" ");
-  const middle = Math.ceil(words.length / 2);
-  const boxes = [words.slice(0, middle).join(" "), words.slice(middle).join(" ")];
-  const path = interpolate(frame, [20, 50], [0, 100], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
+  const mid = Math.ceil(words.length / 2);
+  const boxA = words.slice(0, mid).join(" ");
+  const boxB = words.slice(mid).join(" ");
+  const progressLine = interpolate(frame, [18, 48], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+
   return (
     <AbsoluteFill>
-      <SceneBackground accent={accent} variant="diagram" progress={(index + frame / duration) / total} />
-      <Sequence from={18} durationInFrames={18}><Audio src={staticFile("sfx/whoosh.wav")} volume={.2} /></Sequence>
-      <div style={{position: "absolute", left: 64, top: 270, fontFamily: "Arial, sans-serif", fontSize: 17, fontWeight: 800, letterSpacing: 3, color: accent, ...enter(frame, 0)}}>HOW IT CONNECTS</div>
-      <div style={{position: "absolute", left: 64, right: 64, top: 470, display: "flex", alignItems: "center", gap: 24}}>
-        {boxes.map((box, i) => <React.Fragment key={i}>
-          <div style={{flex: 1, minHeight: 430, padding: 38, display: "flex", flexDirection: "column", justifyContent: "space-between", border: `2px solid ${i === 0 ? INK : accent}`, background: "rgba(255,255,255,.74)", borderRadius: 28, ...enter(frame, i * 18 + 4, 50)}}>
-            <div style={{fontFamily: "Arial, sans-serif", fontSize: 16, fontWeight: 800, color: i === 0 ? MUTED : accent, letterSpacing: 2}}>STEP 0{i + 1}</div>
-            <div style={{fontFamily: "Arial, sans-serif", fontSize: 33, lineHeight: 1.24, fontWeight: 750, color: INK}}>{box}</div>
+      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
+      <Sequence from={14} durationInFrames={18}>
+        <Audio src={staticFile("sfx/whoosh.wav")} volume={0.25} />
+      </Sequence>
+
+      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <Entrance delay={0} distance={15}>
+          <div style={{ fontFamily: theme.fonts.display, fontSize: 16, fontWeight: 800, letterSpacing: 3, color: accent, marginBottom: 36 }}>
+            SYSTEM FLOW & IMPACT
           </div>
-          {i === 0 && <div style={{width: 90}}><div style={{height: 4, width: `${path}%`, background: accent}} /><div style={{textAlign: "right", color: accent, fontSize: 32}}>›</div></div>}
-        </React.Fragment>)}
+        </Entrance>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 24, position: "relative" }}>
+          {/* Node 1 */}
+          <Entrance delay={4} distance={30}>
+            <div style={{ padding: "32px 36px", background: theme.colors.bgCard, borderRadius: 24, border: `1px solid rgba(255,255,255,0.08)`, display: "flex", alignItems: "center", gap: 20 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: theme.colors.textMuted }}>01</div>
+              <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 700, color: theme.colors.text, lineHeight: 1.3 }}>{boxA}</div>
+            </div>
+          </Entrance>
+
+          {/* Connection Line */}
+          <div style={{ height: 32, width: 3, background: `linear-gradient(180deg, ${accent}, transparent)`, marginLeft: 56, opacity: progressLine / 100 }} />
+
+          {/* Node 2 */}
+          <Entrance delay={20} distance={30}>
+            <div style={{ padding: "32px 36px", background: theme.colors.bgCard, borderRadius: 24, border: `1px solid ${accent}66`, boxShadow: `0 0 30px ${accent}22`, display: "flex", alignItems: "center", gap: 20 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: accent, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: "#fff" }}>02</div>
+              <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 800, color: accent, lineHeight: 1.3 }}>{boxB}</div>
+            </div>
+          </Entrance>
+        </div>
       </div>
     </AbsoluteFill>
   );
 };
 
-const TimelineScene: React.FC<{beat: Beat; duration: number; accent: string; index: number; total: number}> = ({beat, duration, accent, index, total}) => {
+// --- Component 10: Timeline Sequence Scene ---
+const TimelineScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
+  beat,
+  duration,
+  accent,
+  index,
+  total,
+}) => {
   const frame = useCurrentFrame();
   const events = beat.narration_text.split(/\s*\|\s*|(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
-  const line = interpolate(frame, [12, duration * .55], [0, 100], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
+  const line = interpolate(frame, [10, duration * 0.6], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+
   return (
     <AbsoluteFill>
-      <SceneBackground accent={accent} variant="editorial" progress={(index + frame / duration) / total} />
-      <div style={{position: "absolute", left: 64, top: 300, fontFamily: "Arial, sans-serif", fontSize: 17, fontWeight: 800, letterSpacing: 3, color: accent, ...enter(frame, 0)}}>THE SEQUENCE</div>
-      <div style={{position: "absolute", left: 94, right: 94, top: 620, height: 4, background: "rgba(10,10,11,.12)"}}><div style={{height: "100%", width: `${line}%`, background: accent}} /></div>
-      <div style={{position: "absolute", left: 64, right: 64, top: 565, display: "grid", gridTemplateColumns: `repeat(${Math.max(1, events.length)}, minmax(0, 1fr))`, gap: 32}}>
-        {events.map((event, i) => {
-          const point = spring({frame: frame - 18 - i * 18, fps: 30, config: {damping: 16, stiffness: 100}});
-          return <div key={event} style={{minWidth: 0, transform: `translateY(${(1 - point) * 34}px)`, opacity: point}}><div style={{width: 24, height: 24, margin: "0 auto", borderRadius: "50%", background: i === events.length - 1 ? accent : INK, border: `6px solid ${PAPER}`, boxShadow: `0 0 0 2px ${i === events.length - 1 ? accent : INK}`}} /><div style={{marginTop: 34, padding: "0 8px", textAlign: "center", fontFamily: "Arial, sans-serif", fontSize: 25, lineHeight: 1.25, fontWeight: 700, color: INK}}>{event}</div></div>;
-        })}
+      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
+      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <Entrance delay={0} distance={15}>
+          <div style={{ fontFamily: theme.fonts.display, fontSize: 16, fontWeight: 800, letterSpacing: 3, color: accent, marginBottom: 40 }}>
+            ROADMAP & TIMELINE
+          </div>
+        </Entrance>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 32, position: "relative" }}>
+          <div style={{ position: "absolute", left: 19, top: 20, bottom: 20, width: 2, background: "rgba(255,255,255,0.08)" }}>
+            <div style={{ width: "100%", height: `${line}%`, background: accent, boxShadow: `0 0 10px ${accent}` }} />
+          </div>
+
+          {events.map((event, i) => (
+            <Entrance key={i} delay={8 + i * 14} distance={25}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 28, paddingLeft: 8 }}>
+                <div style={{ width: 24, height: 24, borderRadius: "50%", background: i === 0 ? accent : theme.colors.bgCard, border: `2px solid ${accent}`, boxShadow: i === 0 ? `0 0 14px ${accent}` : "none", flexShrink: 0, marginTop: 4 }} />
+                <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 650, lineHeight: 1.35, color: theme.colors.text }}>{event}</div>
+              </div>
+            </Entrance>
+          ))}
+        </div>
       </div>
     </AbsoluteFill>
   );
 };
 
-const QuietScene: React.FC<{beat: Beat; duration: number; accent: string; index: number; total: number}> = ({beat, duration, accent}) => {
-  const frame = useCurrentFrame();
-  const words = beat.narration_text.split(" ");
+// --- Component 11: Quiet High-Impact Scene ---
+const QuietScene: React.FC<{ beat: Beat; duration: number; accent: string }> = ({ beat, accent }) => {
   return (
     <AbsoluteFill>
-      <SceneBackground accent={accent} variant="quiet" />
-      <Sequence from={4} durationInFrames={18}><Audio src={staticFile("sfx/ding.wav")} volume={.12} /></Sequence>
-      <div style={{position: "absolute", inset: "260px 76px", display: "flex", flexDirection: "column", justifyContent: "center"}}>
-        <div style={{width: interpolate(frame, [4, 28], [0, 110], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}), height: 5, background: accent, marginBottom: 46}} />
-        <div style={{fontFamily: "Arial, sans-serif", fontSize: 66, lineHeight: 1.1, fontWeight: 850, letterSpacing: -2.5, color: INK}}>{words.map((word, i) => <span key={`${word}-${i}`} style={{display: "inline-block", marginRight: 16, ...enter(frame, 8 + i * 2, 28)}}>{word}</span>)}</div>
-        <div style={{fontFamily: "Arial, sans-serif", marginTop: 48, fontSize: 16, fontWeight: 800, letterSpacing: 3, color: accent, ...enter(frame, 28)}}>THE TAKEAWAY</div>
+      <BgMesh accent={accent} chrome />
+      <Sequence from={4} durationInFrames={18}>
+        <Audio src={staticFile("sfx/ding.wav")} volume={0.2} />
+      </Sequence>
+      <div style={{ position: "absolute", inset: "0 70px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <Entrance delay={0} distance={15}>
+          <div style={{ width: 80, height: 4, background: accent, borderRadius: 2, marginBottom: 40, boxShadow: `0 0 12px ${accent}` }} />
+        </Entrance>
+        <Entrance delay={4} distance={30}>
+          <div style={{ fontFamily: theme.fonts.display, fontSize: 58, lineHeight: 1.2, fontWeight: 850, letterSpacing: -2, color: theme.colors.text }}>
+            {beat.narration_text}
+          </div>
+        </Entrance>
       </div>
     </AbsoluteFill>
   );
 };
 
-const OutroScene: React.FC<{text: string; duration: number; accent: string}> = ({text, duration, accent}) => {
+// --- Component 12: Call to Action Outro Scene ---
+const OutroScene: React.FC<{ text: string; duration: number; accent: string }> = ({ text, duration, accent }) => {
   const frame = useCurrentFrame();
-  const logo = spring({frame: frame - 4, fps: 30, config: {damping: 15, stiffness: 100}});
+
   return (
     <AbsoluteFill>
-      <SceneBackground accent={accent} variant="quiet" chrome />
+      <BgMesh accent={accent} chrome />
       <Audio src={staticFile("audio/03_cta.mp3")} />
-      <Sequence from={3} durationInFrames={20}><Audio src={staticFile("sfx/ding.wav")} volume={.22} /></Sequence>
-      <div style={{position: "absolute", inset: 64, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center"}}>
-        <div style={{width: 116, height: 116, borderRadius: "50%", background: INK, color: PAPER, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Arial, sans-serif", fontSize: 32, fontWeight: 900, transform: `scale(${logo})`}}>CV</div>
-        <div style={{fontFamily: "Arial, sans-serif", fontSize: 54, lineHeight: 1.12, fontWeight: 850, color: INK, maxWidth: 820, marginTop: 48, ...enter(frame, 15)}}>{text}</div>
-        <div style={{fontFamily: "Arial, sans-serif", fontSize: 19, fontWeight: 800, color: accent, letterSpacing: 3, marginTop: 38, ...enter(frame, 25)}}>FOLLOW THE SIGNAL</div>
+      <Sequence from={2} durationInFrames={20}>
+        <Audio src={staticFile("sfx/ding.wav")} volume={0.3} />
+      </Sequence>
+
+      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+        {/* Animated Radial Spark Background behind Logo */}
+        <div style={{ position: "absolute", top: "28%" }}>
+          <RadialSpark size={260} accent={accent} delay={2} />
+        </div>
+
+        {/* Brand Logo Avatar */}
+        <Entrance delay={2} distance={30}>
+          <div
+            style={{
+              width: 120,
+              height: 120,
+              borderRadius: "50%",
+              background: theme.colors.bgCard,
+              border: `2px solid ${accent}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontFamily: theme.fonts.display,
+              fontSize: 36,
+              fontWeight: 900,
+              color: "#fff",
+              boxShadow: `0 0 40px ${accent}55`,
+              position: "relative",
+              zIndex: 2,
+            }}
+          >
+            CV
+          </div>
+        </Entrance>
+
+        <Entrance delay={8} distance={25}>
+          <div style={{ fontFamily: theme.fonts.display, fontSize: 50, lineHeight: 1.2, fontWeight: 850, color: theme.colors.text, maxWidth: 860, marginTop: 44 }}>
+            {text}
+          </div>
+        </Entrance>
+
+        {/* CTA Pill */}
+        <Entrance delay={16} distance={20}>
+          <div
+            style={{
+              marginTop: 36,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "14px 32px",
+              borderRadius: 40,
+              background: accent,
+              color: "#000",
+              fontFamily: theme.fonts.display,
+              fontSize: 18,
+              fontWeight: 900,
+              letterSpacing: 2,
+              boxShadow: `0 0 35px ${accent}66`,
+            }}
+          >
+            SUBSCRIBE FOR DAILY BREAKTHROUGHS
+          </div>
+        </Entrance>
       </div>
     </AbsoluteFill>
   );
 };
 
+// --- Component 13: Clean Vignette Layer (Rule 5 & 7) ---
 const Vignette: React.FC = () => (
-  <AbsoluteFill style={{pointerEvents: "none", background: "radial-gradient(circle at center, transparent 40%, rgba(10,10,12,0.18) 120%)"}} />
+  <AbsoluteFill style={{ pointerEvents: "none", background: "radial-gradient(circle at center, transparent 40%, rgba(10,10,15,0.3) 120%)" }} />
 );
 
-export const ContentVideo: React.FC<VideoProps> = ({script}) => {
+export const ContentVideo: React.FC<VideoProps> = ({ script }) => {
   const allText = `${script.hook} ${script.body}`;
   const accent = accentFor(allText);
   const beatKeys = Object.keys(beats);
@@ -254,15 +630,27 @@ export const ContentVideo: React.FC<VideoProps> = ({script}) => {
   let cursor = hookFrames;
 
   return (
-    <AbsoluteFill style={{background: PAPER}}>
-      <Sequence from={0} durationInFrames={hookFrames}><HookScene text={script.hook} duration={hookFrames} accent={accent} /></Sequence>
+    <AbsoluteFill style={{ background: theme.colors.bg }}>
+      <Sequence from={0} durationInFrames={hookFrames}>
+        <HookScene text={script.hook} duration={hookFrames} accent={accent} />
+      </Sequence>
       {beatKeys.map((name, index) => {
         const duration = beats[name];
         const from = cursor;
         cursor += duration;
-        const beat = script.suggested_visual_beats.find((item) => item.name === name) || script.suggested_visual_beats[index] || {name, narration_text: ""};
+        const beat = script.suggested_visual_beats.find((item) => item.name === name) || script.suggested_visual_beats[index] || { name, narration_text: "" };
         const type = beat.beat_type || "kinetic_text";
-        const Scene = beat.visual_style === "timeline" ? TimelineScene : beat.visual_style === "quiet" ? QuietScene : type === "stat_reveal" ? StatScene : type === "diagram" ? DiagramScene : KineticScene;
+        const Scene =
+          beat.visual_style === "timeline"
+            ? TimelineScene
+            : beat.visual_style === "quiet"
+            ? QuietScene
+            : type === "stat_reveal" || beat.visual_style === "stat_led"
+            ? StatScene
+            : type === "diagram" || beat.visual_style === "diagram"
+            ? DiagramScene
+            : KineticScene;
+
         return (
           <Sequence key={name} from={from} durationInFrames={duration}>
             <Audio src={staticFile(`audio/beat_${String(index + 1).padStart(2, "0")}.mp3`)} />
@@ -270,10 +658,11 @@ export const ContentVideo: React.FC<VideoProps> = ({script}) => {
           </Sequence>
         );
       })}
-      <Sequence from={totalFrames - outroFrames} durationInFrames={outroFrames}><OutroScene text={script.cta} duration={outroFrames} accent={accent} /></Sequence>
-      
-      {/* 5-layer stack: Clean subtle cinematic grade and soft vignette without harsh flickering grain */}
-      <div style={{position: "absolute", inset: 0, pointerEvents: "none", mixBlendMode: "multiply", opacity: 0.04, background: "linear-gradient(135deg, #000 0%, transparent 100%)"}} />
+      <Sequence from={totalFrames - outroFrames} durationInFrames={outroFrames}>
+        <OutroScene text={script.cta} duration={outroFrames} accent={accent} />
+      </Sequence>
+
+      {/* Topmost Cinematic Vignette Layer */}
       <Vignette />
     </AbsoluteFill>
   );
