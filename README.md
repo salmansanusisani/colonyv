@@ -196,6 +196,61 @@ colonyv/
 └── README.md
 ```
 
+## Reproducible Testing
+
+Judges and evaluators can verify COLONY-V locally using the following reproducible test commands:
+
+### 1. Run Automated Test Suite (Pytest)
+
+The repository includes 33 unit and integration tests covering JSON contract validations, agent schemas, publication policy gates, and runtime pause/resume/stop mechanics:
+
+```bash
+source .venv/bin/activate
+pytest -v
+```
+
+### 2. Verify Motion Graphics Compiler (TypeScript)
+
+Validate that all Remotion 4 components, scene templates, and dynamic kinetic animations pass strict TypeScript compilation:
+
+```bash
+cd producer
+npx tsc --noEmit
+cd ..
+```
+
+### 3. Verify Gemini / Vertex AI Connectivity
+
+Verify that your Google Cloud Vertex AI or Gemini environment credentials are authenticated and responsive:
+
+```bash
+# For Vertex AI (ADC)
+python3 scripts/check_gemini.py --vertex
+
+# Or with an API key
+python3 scripts/check_gemini.py --key YOUR_GEMINI_API_KEY
+```
+
+### 4. Sandbox Dry-Run (End-to-End Pipeline without YouTube upload)
+
+Execute an offline end-to-end editorial run that fetches stories, fact-checks, scripts, and renders motion graphics without uploading to YouTube:
+
+```bash
+# Run 1 complete story in sandbox mode
+python3 agents/pipeline.py --stories 1 --sandbox
+```
+
+### 5. Launch Local Mission Control Dashboard
+
+Start the FastAPI mission control dashboard to test the real-time WebSocket logs, interactive DAG tracker, and manual agent trigger:
+
+```bash
+python3 -m uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
+```
+Then navigate to **`http://localhost:8000`** in your browser.
+
+---
+
 ## Environment Variables
 
 | Variable | Required | Description |
