@@ -1795,8 +1795,6 @@ async def start_scheduler():
     import threading
     def _loop():
         while True:
-            if app_loop:
-                app_loop.call_soon_threadsafe(scheduler_tick)
             time.sleep(60)
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
