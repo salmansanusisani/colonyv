@@ -162,8 +162,8 @@ pipeline_state = {
     "current_step": None,
     "progress": 0,
     "logs": [],
-    "story_count": 0,
-    "stories_done": 0,
+    "content_count": 0,
+    "content_done": 0,
     "start_time": None,
     "current_process": None,
     "active_agent": None,
@@ -290,8 +290,8 @@ async def api_status():
         "run_id": pipeline_state["run_id"],
         "current_step": pipeline_state["current_step"],
         "progress": pipeline_state["progress"],
-        "story_count": pipeline_state["story_count"],
-        "stories_done": pipeline_state["stories_done"],
+        "content_count": pipeline_state["content_count"],
+        "content_done": pipeline_state["content_done"],
         "elapsed": (
             time.time() - pipeline_state["start_time"]
             if pipeline_state["start_time"]
@@ -343,8 +343,8 @@ async def api_agent_run(request: Request):
         "current_step": "agent-orchestrated",
         "progress": 0,
         "logs": [],
-        "story_count": stories,
-        "stories_done": 0,
+        "content_count": stories,
+        "content_done": 0,
         "start_time": time.time(),
         "stage_state": {},
     })
@@ -389,7 +389,7 @@ async def api_agent_run(request: Request):
         log("Async pipeline scheduled: monitor stage published")
         return {"status": "started", "mode": "adk-async", "run_id": run_id}
 
-    asyncio.create_task(run_production_director(stories))
+    asyncio.create_task(run_production_director(pieces of content))
 
     return {"status": "started", "mode": "adk-production", "run_id": run_id}
 
@@ -398,7 +398,7 @@ async def run_production_director(stories: int):
     from colonyv_agent.factory import run_factory_async
 
     try:
-        result = await run_factory_async(stories)
+        result = await run_factory_async(pieces of content)
         from colonyv_agent import pipeline_runtime as rt
         if rt.is_stop_requested():
             log("ADK production stopped by operator.")
@@ -579,8 +579,8 @@ async def api_pipeline_start(request: Request):
         "current_step": "starting",
         "progress": 0,
         "logs": [],
-        "story_count": stories,
-        "stories_done": 0,
+        "content_count": stories,
+        "content_done": 0,
         "start_time": time.time(),
     })
     reset_agent_activity()
@@ -1373,7 +1373,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
                     log(f"  Last output: {result.stdout[-200:] if result.stdout else 'empty'}")
                     set_agent_activity("publish", "failed", "YouTube publishing failed")
 
-            pipeline_state["stories_done"] = i + 1
+            pipeline_state["content_done"] = i + 1
 
         if not pipeline_state["running"]:
             log("Pipeline stopped by user")
@@ -1381,11 +1381,11 @@ async def run_pipeline(stories: int, skip_publish: bool):
         else:
             pipeline_state["progress"] = 100
             pipeline_state["current_step"] = "complete"
-            log(f"Pipeline complete: {pipeline_state['stories_done']}/{len(stories_list)} stories")
+            log(f"Pipeline complete: {pipeline_state['content_done']}/{len(stories_list)} stories")
 
             # Send notification
             if notification_config.get("on_complete"):
-                await send_notification(f"Pipeline complete: {pipeline_state['stories_done']}/{len(stories_list)} stories rendered")
+                await send_notification(f"Pipeline complete: {pipeline_state['content_done']}/{len(stories_list)} pieces of content rendered")
 
             # Track cost (rough estimate: 3 LLM calls per story — monitor scoring, research, script)
             llm_calls = len(stories_list) * 3
@@ -1743,18 +1743,50 @@ def scheduler_tick():
 def start_pipeline_task(stories: int, skip_publish: bool):
     if pipeline_state["running"]:
         return
+        
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = OUTPUT_DIR / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
     pipeline_state.update({
         "running": True,
         "paused": False,
-        "run_id": datetime.now().strftime("%Y%m%d_%H%M%S"),
-        "current_step": "starting",
+        "run_id": run_id,
+        "current_step": "agent-orchestrated",
         "progress": 0,
         "logs": [],
-        "story_count": stories,
-        "stories_done": 0,
+        "content_count": stories,
+        "content_done": 0,
         "start_time": time.time(),
+        "stage_state": {},
     })
-    asyncio.create_task(run_pipeline(stories, skip_publish))
+    reset_agent_activity()
+    persist_pipeline_state()
+
+    model_id = settings["model"].get("model_id", "gemini/gemini-3.5-flash")
+    model_env = {
+        **os.environ,
+        "COLONY_MODEL_ID": model_id,
+        "COLONYV_GEMINI_MODEL": model_id.removeprefix("gemini/"),
+        "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
+        "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
+    }
+    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+    model_env.pop("GOOGLE_API_KEY", None)
+    model_env.pop("GEMINI_API_KEY", None)
+
+    from colonyv_agent import pipeline_runtime
+    pipeline_runtime.configure(
+        logger=log,
+        activity=set_agent_activity,
+        env=model_env,
+        out_dir=OUTPUT_DIR,
+        run=run_id,
+        skip=skip_publish,
+    )
+    
+    asyncio.create_task(run_production_director(stories))
 
 
 @app.on_event("startup")

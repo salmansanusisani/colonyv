@@ -248,6 +248,19 @@ def main():
         except Exception:
             pass
 
+    topic_prompt = os.environ.get("COLONY_TOPIC_PROMPT", "").strip()
+    if topic_prompt:
+        import urllib.parse
+        encoded_topic = urllib.parse.quote(topic_prompt)
+        dynamic_feed = {
+            "name": f"Trending: {topic_prompt}",
+            "url": f"https://news.google.com/rss/search?q={encoded_topic}",
+            "category": "trending",
+            "enabled": True
+        }
+        feeds.insert(0, dynamic_feed)
+        print(f"[info] Injecting dynamic search feed for topic: {topic_prompt}")
+
     print(f"[1/3] Fetching from {len(feeds)} RSS feeds...")
     entries = fetch_entries(feeds)
     print(f"  Fetched {len(entries)} unique entries")

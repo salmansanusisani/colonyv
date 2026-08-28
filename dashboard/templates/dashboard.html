@@ -842,13 +842,6 @@
                 <div style="width:100%; height:6px; background:#e5e5ea; border-radius:3px; overflow:hidden;">
                     <div id="progressFill" style="height:100%; width:0%; background:var(--apple-blue); transition:width 0.3s ease;"></div>
                 </div>
-                <div class="step-tracker">
-                    <div class="tracker-node" id="step-monitor">1. Monitor</div>
-                    <div class="tracker-node" id="step-research">2. Research</div>
-                    <div class="tracker-node" id="step-script">3. Scriptwriter</div>
-                    <div class="tracker-node" id="step-render">4. Producer</div>
-                    <div class="tracker-node" id="step-publish">5. Publisher</div>
-                </div>
             </div>
 
             <div class="apple-card agent-board" style="margin-bottom:24px;">
@@ -942,10 +935,10 @@
                 <div class="apple-card chart-card">
                     <div class="chart-copy">
                         <div class="card-title">Pipeline Throughput</div>
-                        <p>How many source stories ColonyV processed in each recent run. Use this to see whether scheduled and manual executions are producing consistent volume.</p>
-                        <div class="chart-summary"><strong id="throughputSummary">0</strong><span>stories processed</span></div>
+                        <p>How many source content ColonyV processed in each recent run. Use this to see whether scheduled and manual executions are producing consistent volume.</p>
+                        <div class="chart-summary"><strong id="throughputSummary">0</strong><span>content processed</span></div>
                     </div>
-                    <div class="chart-stage" id="storiesChartStage"><canvas id="storiesChart"></canvas></div>
+                    <div class="chart-stage" id="contentChartStage"><canvas id="contentChart"></canvas></div>
                 </div>
                 <div class="apple-card chart-card">
                     <div class="chart-copy">
@@ -989,7 +982,7 @@
                         <div class="card-title" style="margin-bottom:16px;">Pipeline Defaults</div>
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">These settings control every manual and scheduled run. Dashboard Run uses them automatically.</p>
                         <div class="settings-group">
-                            <div class="settings-row"><div class="settings-label"><span>Videos per run</span><small>Number of stories to process each time</small></div><input id="videosPerRun" type="number" min="1" max="20" value="1" class="apple-input" style="width:100px;"></div>
+                            <div class="settings-row"><div class="settings-label"><span>Videos per run</span><small>Number of content to process each time</small></div><input id="videosPerRun" type="number" min="1" max="20" value="1" class="apple-input" style="width:100px;"></div>
                             <div class="settings-row"><div class="settings-label"><span>Publish automatically</span><small>When off, videos render without uploading</small></div><input id="skipPublish" type="checkbox" checked style="width:20px; height:20px; accent-color:var(--apple-blue)"></div>
                             <div class="settings-row"><div class="settings-label"><span>Maximum narration duration</span><small>Hard target for generated videos</small></div><input id="maxDuration" type="number" min="10" max="60" value="60" class="apple-input" style="width:100px;"><span style="font-size:12px;">seconds</span></div>
                         </div>
@@ -1374,7 +1367,7 @@ CONTROLS
             document.getElementById('pauseBtn').disabled = !!s.paused;
             document.getElementById('resumeBtn').disabled = !s.paused;
             document.getElementById('progressFill').style.width = s.progress + '%';
-            document.getElementById('stepText').textContent = s.current_step + ' (' + s.stories_done + '/' + s.story_count + ' stories)';
+            document.getElementById('stepText').textContent = s.current_step + ' (' + s.content_done + '/' + s.content_count + ' pieces of content)';
 
             ['monitor','research','script','render','publish'].forEach(step => {
                 const el = document.getElementById('step-' + step);
@@ -1427,7 +1420,7 @@ CONTROLS
             empty.style.display = 'none';
             tbody.innerHTML = data.runs.map(r => `
                 <tr class="clickable" onclick="showRunDetail('${r.run_id}')">
-                    <td style="font-family:monospace; font-weight:600;">${esc(r.run_id)}</td><td>${r.stories}</td><td>${r.researched}</td><td>${r.scripted}</td><td>${r.rendered}</td><td>${r.video_size_mb} MB</td>
+                    <td style="font-family:monospace; font-weight:600;">${esc(r.run_id)}</td><td>${r.content}</td><td>${r.researched}</td><td>${r.scripted}</td><td>${r.rendered}</td><td>${r.video_size_mb} MB</td>
                     <td>${r.has_video ? '<span class="badge badge-green">Rendered</span>' : '<span class="badge badge-gray">Partial</span>'}</td>
                 </tr>`).join('');
         } catch (error) {
@@ -1443,7 +1436,7 @@ CONTROLS
         if (data.error) { toast(data.error, 'error'); return; }
 
         let html = `<div class="modal-title-row"><h2 style="font-size:20px; font-weight:800;">Run Detail: ${esc(runId)}</h2><button class="btn-apple btn-apple-secondary btn-sm" onclick="closeModal()">Close</button></div>`;
-        data.stories.forEach(s => {
+        data.content.forEach(s => {
             html += `<div style="margin-bottom:16px; padding:18px; background:#f5f5f7; border-radius:14px;">`;
             html += `<strong style="font-size:15px;">${esc((s.monitor||{}).title||'Unknown')}</strong>`;
             if (s.monitor) {
@@ -1466,18 +1459,18 @@ CONTROLS
         try {
             const data = await fetchJson('/api/analytics');
             document.getElementById('statRuns').textContent = data.total_runs || 0;
-            document.getElementById('statStories').textContent = data.total_stories || 0;
+            document.getElementById('statStories').textContent = data.total_content || 0;
             document.getElementById('statRendered').textContent = data.total_rendered || 0;
-            document.getElementById('throughputSummary').textContent = Number(data.total_stories || 0).toLocaleString();
+            document.getElementById('throughputSummary').textContent = Number(data.total_content || 0).toLocaleString();
             document.getElementById('storageSummary').textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
 
-            if (charts.stories) charts.stories.destroy();
+            if (charts.pieces of content) charts.content.destroy();
             if (charts.sizes) charts.sizes.destroy();
 
-        charts.stories = new Chart(document.getElementById('storiesChart'), {
+        charts.content = new Chart(document.getElementById('contentChart'), {
             type: 'bar',
-            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories processed', data: data.runs.map(r=>r.stories), backgroundColor: 'rgba(0, 113, 227, .82)', hoverBackgroundColor: '#0077ed', borderRadius: 8, borderSkipped: false, maxBarThickness: 28 }] },
-            options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${ctx.parsed.y} stories processed` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { precision: 0, color: '#86868b', font: { size: 10 } } } } }
+            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories processed', data: data.runs.map(r=>r.pieces of content), backgroundColor: 'rgba(0, 113, 227, .82)', hoverBackgroundColor: '#0077ed', borderRadius: 8, borderSkipped: false, maxBarThickness: 28 }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${ctx.parsed.y} content processed` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { precision: 0, color: '#86868b', font: { size: 10 } } } } }
         });
         charts.sizes = new Chart(document.getElementById('sizesChart'), {
             type: 'line',
@@ -1485,11 +1478,11 @@ CONTROLS
             options: { responsive: true, maintainAspectRatio: false, animation: { duration: 1100, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${Number(ctx.parsed.y || 0).toFixed(1)} MB rendered` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { color: '#86868b', font: { size: 10 }, callback: value => `${value} MB` } } } }
         });
             requestAnimationFrame(() => {
-            document.getElementById('storiesChartStage').classList.remove('reveal');
+            document.getElementById('contentChartStage').classList.remove('reveal');
             document.getElementById('sizesChartStage').classList.remove('reveal');
-            void document.getElementById('storiesChartStage').offsetWidth;
+            void document.getElementById('contentChartStage').offsetWidth;
             void document.getElementById('sizesChartStage').offsetWidth;
-            document.getElementById('storiesChartStage').classList.add('reveal');
+            document.getElementById('contentChartStage').classList.add('reveal');
             document.getElementById('sizesChartStage').classList.add('reveal');
             });
         } catch (error) {
@@ -1681,7 +1674,7 @@ CONTROLS
         const data = await resp.json();
         document.getElementById('schedEnabled').checked = data.enabled;
         document.getElementById('schedInterval').value = data.interval_hours;
-        document.getElementById('schedStories').value = data.stories;
+        document.getElementById('schedStories').value = data.content;
         document.getElementById('schedStatus').textContent = data.enabled ? 'Active schedule' : 'Scheduler disabled';
     }
 
@@ -1689,7 +1682,7 @@ CONTROLS
         const body = {
             enabled: document.getElementById('schedEnabled').checked,
             interval_hours: parseInt(document.getElementById('schedInterval').value),
-            stories: parseInt(document.getElementById('schedStories').value),
+            content: parseInt(document.getElementById('schedStories').value),
             sandbox: true
         };
         await fetch('/api/scheduler', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
