@@ -517,6 +517,27 @@
             gap: 6px;
         }
 
+        .topic-card {
+            padding: 14px;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            cursor: pointer;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            background: #fafafa;
+            color: var(--text-primary);
+        }
+        .topic-card:hover {
+            border-color: var(--border-hover);
+        }
+        .topic-card.selected {
+            border-color: var(--apple-blue);
+            background: #f0f7ff;
+            color: var(--apple-blue);
+        }
+
         .terminal-dot {
             width: 10px;
             height: 10px;
@@ -971,7 +992,6 @@
                     <button class="btn-apple" data-settings-tab="youtube" onclick="showSettingsTab('youtube', this)"><span data-icon="youtube"></span> YouTube</button>
                     <button class="btn-apple" data-settings-tab="pipeline" onclick="showSettingsTab('pipeline', this)"><span data-icon="sliders"></span> Pipeline</button>
                     <button class="btn-apple" data-settings-tab="alerts" onclick="showSettingsTab('alerts', this)"><span data-icon="bell"></span> Notifications</button>
-                    <button class="btn-apple" data-settings-tab="scheduler" onclick="showSettingsTab('scheduler', this)"><span data-icon="calendar"></span> Scheduler</button>
                     <button class="btn-apple" data-settings-tab="manual" onclick="showSettingsTab('manual', this)"><span data-icon="book"></span> Manual</button>
                 </nav>
 
@@ -983,7 +1003,6 @@
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">These settings control every manual and scheduled run. Dashboard Run uses them automatically.</p>
                         <div class="settings-group">
                             <div class="settings-row"><div class="settings-label"><span>Videos per run</span><small>Number of content to process each time</small></div><input id="videosPerRun" type="number" min="1" max="20" value="1" class="apple-input" style="width:100px;"></div>
-                            <div class="settings-row"><div class="settings-label"><span>Publish automatically</span><small>When off, videos render without uploading</small></div><input id="skipPublish" type="checkbox" checked style="width:20px; height:20px; accent-color:var(--apple-blue)"></div>
                             <div class="settings-row"><div class="settings-label"><span>Maximum narration duration</span><small>Hard target for generated videos</small></div><input id="maxDuration" type="number" min="10" max="60" value="60" class="apple-input" style="width:100px;"><span style="font-size:12px;">seconds</span></div>
                         </div>
                         <button class="btn-apple btn-apple-primary btn-sm" onclick="saveSettings()">Save Pipeline Settings</button>
@@ -1019,12 +1038,15 @@
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Customize the target news domains and topic categories your pipeline focuses on.</p>
 
                         <div class="settings-group">
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Target Categories</span>
-                                    <small>Enable topics for feed parsing & scoring</small>
+                            <div class="settings-row" style="display:block; padding-bottom:12px;">
+                                <div class="settings-label" style="margin-bottom:10px;">
+                                    <span>Active Focus Area</span>
+                                    <small>Select the primary topic the agent will monitor and produce content for</small>
                                 </div>
-                                <input id="topicPrompt" class="apple-input" style="width:min(520px, 100%);" placeholder="e.g. AI agents, robotics, chips, creator tools, crypto markets">
+                                <div id="topicCardsContainer" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-bottom:12px;">
+                                    <!-- Populated by JS -->
+                                </div>
+                                <button class="btn-apple btn-apple-secondary btn-sm" onclick="addCustomTopic()">+ Add Custom Topic</button>
                             </div>
                             <div class="settings-row">
                                 <div class="settings-label">
@@ -1052,39 +1074,6 @@
                     </div>
 
                     <!-- 3. Scheduler Setup -->
-                    <div class="apple-card settings-panel" id="sched-setup" data-settings-panel="scheduler">
-                        <div class="card-title" style="margin-bottom:16px;">Automated Pipeline Scheduler</div>
-                        <div class="settings-group">
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Enable Cron Execution</span>
-                                    <small>Runs pipeline periodically in the background</small>
-                                </div>
-                                <input type="checkbox" id="schedEnabled" style="width:20px; height:20px; accent-color:var(--apple-blue)">
-                            </div>
-                            <div class="settings-row">
-                                <div class="settings-label"><span>Interval Frequency</span></div>
-                                <select id="schedInterval" class="apple-select">
-                                    <option value="1">Every 1 Hour</option>
-                                    <option value="3">Every 3 Hours</option>
-                                    <option value="6" selected>Every 6 Hours</option>
-                                    <option value="12">Every 12 Hours</option>
-                                    <option value="24">Every 24 Hours</option>
-                                </select>
-                            </div>
-                            <div class="settings-row">
-                                <div class="settings-label"><span>Stories Per Run</span></div>
-                                <select id="schedStories" class="apple-select">
-                                    <option value="1">1 Story</option>
-                                    <option value="2" selected>2 Stories</option>
-                                    <option value="3">3 Stories</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button class="btn-apple btn-apple-primary btn-sm" onclick="saveScheduler()">Save Schedule</button>
-                        <div id="schedStatus" style="font-size:12px; color:var(--text-secondary); margin-top:10px;"></div>
-                    </div>
-
                     <!-- 4. YouTube Setup -->
                     <div class="apple-card settings-panel" id="yt-setup" data-settings-panel="youtube">
                         <div class="card-title" style="margin-bottom:16px;">YouTube OAuth Credentials</div>
@@ -1176,7 +1165,6 @@ CONTROLS
             tab.classList.toggle('active', tab.dataset.settingsTab === tabName);
         });
         if (tabName === 'feeds') loadFeeds();
-        if (tabName === 'scheduler') loadScheduler();
         if (tabName === 'youtube') loadYouTube();
         if (tabName === 'alerts') loadNotifications();
     }
@@ -1668,27 +1656,6 @@ CONTROLS
         toast('Feeds saved', 'info');
     }
 
-    // Scheduler
-    async function loadScheduler() {
-        const resp = await fetch('/api/scheduler');
-        const data = await resp.json();
-        document.getElementById('schedEnabled').checked = data.enabled;
-        document.getElementById('schedInterval').value = data.interval_hours;
-        document.getElementById('schedStories').value = data.content;
-        document.getElementById('schedStatus').textContent = data.enabled ? 'Active schedule' : 'Scheduler disabled';
-    }
-
-    async function saveScheduler() {
-        const body = {
-            enabled: document.getElementById('schedEnabled').checked,
-            interval_hours: parseInt(document.getElementById('schedInterval').value),
-            content: parseInt(document.getElementById('schedStories').value),
-            sandbox: true
-        };
-        await fetch('/api/scheduler', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-        toast('Schedule saved', 'info');
-    }
-
     // Notifications
     async function saveNotifications() {
         const body = { slack_webhook: document.getElementById('slackWebhook').value, email_to: document.getElementById('emailTo').value };
@@ -1703,25 +1670,73 @@ CONTROLS
         document.getElementById('emailTo').value = '';
     }
 
+    let customTopics = [];
+    let activeTopic = "";
+
+    function renderTopicCards() {
+        const container = document.getElementById('topicCardsContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        customTopics.forEach(topic => {
+            const div = document.createElement('div');
+            div.className = 'topic-card' + (topic === activeTopic ? ' selected' : '');
+            div.textContent = topic;
+            div.onclick = () => {
+                activeTopic = topic;
+                renderTopicCards();
+                saveSettings();
+            };
+            container.appendChild(div);
+        });
+    }
+
+    function addCustomTopic() {
+        const t = prompt("Enter a new topic focus (e.g., 'New GPUs 2026'):");
+        if (t && t.trim()) {
+            const clean = t.trim();
+            if (!customTopics.includes(clean)) {
+                customTopics.push(clean);
+            }
+            activeTopic = clean;
+            renderTopicCards();
+            saveSettings();
+        }
+    }
+
     async function loadSettings() {
         const resp = await fetch('/api/settings');
         settingsData = await resp.json();
         const p = settingsData.pipeline || {};
         const m = settingsData.model || {};
         const c = settingsData.content || {};
+        
         document.getElementById('videosPerRun').value = p.videos_per_run || 1;
-        document.getElementById('skipPublish').checked = p.skip_publish !== false;
         document.getElementById('maxDuration').value = p.max_duration_seconds || 60;
         document.getElementById('modelId').value = m.model_id || 'gemini/gemini-3.5-flash';
         document.getElementById('modelKeyStatus').textContent = 'Since keys are not used, auth is Vertex ADC';
-        document.getElementById('topicPrompt').value = c.topic_prompt || '';
         document.getElementById('brandVoice').value = c.brand_voice || 'engaging_news';
-        document.getElementById('runConfigSummary').textContent = `${p.videos_per_run || 1} video${(p.videos_per_run || 1) === 1 ? '' : 's'} per run · ${p.skip_publish === false ? 'publishing enabled' : 'render only'} · ${m.model_id || 'gemini/gemini-3.5-flash'}`;
+        document.getElementById('runConfigSummary').textContent = `${p.videos_per_run || 1} video${(p.videos_per_run || 1) === 1 ? '' : 's'} per run · publishing enabled · ${m.model_id || 'gemini/gemini-3.5-flash'}`;
+        
+        customTopics = c.custom_topics || ["AI & Machine Learning", "Cryptocurrency", "Big Tech & Startups", "Hardware & GPUs"];
+        activeTopic = c.active_topic || customTopics[0];
+        renderTopicCards();
     }
 
     async function saveSettings() {
         const model = { provider: 'gemini', model_id: document.getElementById('modelId').value.trim() };
-        const body = { pipeline: { videos_per_run: parseInt(document.getElementById('videosPerRun').value), skip_publish: document.getElementById('skipPublish').checked, max_duration_seconds: parseInt(document.getElementById('maxDuration').value) }, model, content: { topic_prompt: document.getElementById('topicPrompt').value.trim(), brand_voice: document.getElementById('brandVoice').value } };
+        const body = { 
+            pipeline: { 
+                videos_per_run: parseInt(document.getElementById('videosPerRun').value), 
+                skip_publish: false, 
+                max_duration_seconds: parseInt(document.getElementById('maxDuration').value) 
+            }, 
+            model, 
+            content: { 
+                active_topic: activeTopic, 
+                custom_topics: customTopics, 
+                brand_voice: document.getElementById('brandVoice').value 
+            } 
+        };
         const resp = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
         if (resp.ok) { await loadSettings(); toast('Pipeline and model settings saved', 'success'); }
     }

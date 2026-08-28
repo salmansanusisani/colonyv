@@ -52,7 +52,7 @@ SETTINGS_PATH = CONFIG_DIR / "settings.json"
 DEFAULT_SETTINGS = {
     "pipeline": {
         "videos_per_run": 1,
-        "skip_publish": True,
+        "skip_publish": False,
         "max_duration_seconds": 60,
     },
     "model": {
@@ -62,11 +62,13 @@ DEFAULT_SETTINGS = {
     },
     "content": {
         "categories": ["ai", "tech", "crypto"],
+        "active_topic": "AI & Machine Learning",
+        "custom_topics": ["AI & Machine Learning", "Cryptocurrency", "Big Tech & Startups", "Hardware & GPUs"],
         "topic_prompt": "",
         "brand_voice": "engaging_news",
     },
     "scheduler": {
-        "enabled": False,
+        "enabled": True,
         "interval_hours": 6,
         "videos_per_run": 1,
     },
@@ -330,7 +332,7 @@ async def api_agent_run(request: Request):
 
     body = await request.json()
     stories = int(settings["pipeline"].get("videos_per_run", 1))
-    skip_publish = bool(settings["pipeline"].get("skip_publish", True))
+    skip_publish = False
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = OUTPUT_DIR / run_id
@@ -357,7 +359,7 @@ async def api_agent_run(request: Request):
         "COLONY_MODEL_ID": model_id,
         "COLONYV_GEMINI_MODEL": model_id.removeprefix("gemini/"),
         "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-        "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
+        "COLONY_TOPIC_PROMPT": settings["content"].get("active_topic", ""),
     }
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
@@ -1130,7 +1132,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
             "COLONY_MODEL_ID": settings["model"].get("model_id", "gemini/gemini-3.5-flash"),
             "COLONYV_GEMINI_MODEL": settings["model"].get("model_id", "gemini/gemini-3.5-flash").removeprefix("gemini/"),
             "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-            "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
+            "COLONY_TOPIC_PROMPT": settings["content"].get("active_topic", ""),
         }
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
             model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
@@ -1517,13 +1519,14 @@ def parse_json_from_output(output: str, expect: str = "object"):
 # --- Scheduler ---
 
 scheduler_config = {
-    "enabled": settings["scheduler"].get("enabled", False),
+    "enabled": True,
     "interval_hours": settings["scheduler"].get("interval_hours", 6),
     "stories": settings["scheduler"].get("videos_per_run", settings["pipeline"].get("videos_per_run", 1)),
 
     "last_run": None,
     "next_run": None,
 }
+scheduler_config["next_run"] = (datetime.now() + timedelta(hours=scheduler_config["interval_hours"])).isoformat()
 
 
 @app.get("/api/scheduler")
@@ -1535,16 +1538,15 @@ async def api_scheduler_get():
 async def api_scheduler_set(request: Request):
     body = await request.json()
     scheduler_config.update({
-        "enabled": body.get("enabled", False),
+        "enabled": True,
         "interval_hours": body.get("interval_hours", 6),
         "stories": body.get("stories", settings["pipeline"].get("videos_per_run", 1)),
     })
-    if scheduler_config["enabled"]:
-        scheduler_config["next_run"] = (
-            datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
-        ).isoformat()
+    scheduler_config["next_run"] = (
+        datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
+    ).isoformat()
     settings["scheduler"].update({
-        "enabled": scheduler_config["enabled"],
+        "enabled": True,
         "interval_hours": scheduler_config["interval_hours"],
         "videos_per_run": scheduler_config["stories"],
     })
@@ -1769,7 +1771,7 @@ def start_pipeline_task(stories: int, skip_publish: bool):
         "COLONY_MODEL_ID": model_id,
         "COLONYV_GEMINI_MODEL": model_id.removeprefix("gemini/"),
         "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-        "COLONY_TOPIC_PROMPT": settings["content"].get("topic_prompt", ""),
+        "COLONY_TOPIC_PROMPT": settings["content"].get("active_topic", ""),
     }
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
