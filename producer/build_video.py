@@ -330,7 +330,7 @@ async def build_video(script_path: str, output_path: str | None = None, scene_pl
     print("[3/4] Generating placeholder images...")
     asset_manifest = []
     for beat in beats_data:
-        image_url = beat.get("image_url", "")
+        image_url = beat.get("asset_source_url", "")
         image_path = images_dir / f"{beat['name']}.png"
         available = bool(image_url and download_editorial_asset(image_url, image_path, beat.get("asset_type", "article_image")))
         beat["asset_available"] = available

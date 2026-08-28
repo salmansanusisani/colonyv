@@ -54,18 +54,25 @@ const accentFor = (text: string) => {
 };
 
 const enter = (frame: number, delay = 0, distance = 32) => {
-  const value = spring({frame: frame - delay, fps: 30, config: {damping: 18, stiffness: 105, mass: .7}});
-  return {opacity: value, transform: `translateY(${(1 - value) * distance}px)`};
+  const value = spring({frame: frame - delay, fps: 30, config: {damping: 16, stiffness: 120, mass: 0.6}});
+  return {opacity: value, transform: `translateY(${(1 - value) * distance}px) scale(${0.96 + (value * 0.04)})`};
 };
 
 const SceneBackground: React.FC<{accent: string; progress?: number; variant?: string; chrome?: boolean}> = ({accent, progress = 0, variant = "editorial", chrome = false}) => {
   const frame = useCurrentFrame();
-  const x = Math.sin(frame / 80) * 18;
-  const y = Math.cos(frame / 95) * 14;
+  const x = Math.sin(frame / 60) * 40;
+  const y = Math.cos(frame / 70) * 35;
   return (
     <AbsoluteFill style={{background: variant === "quiet" ? "#ffffff" : PAPER, overflow: "hidden"}}>
       {(variant === "editorial" || variant === "diagram") && <div style={{position: "absolute", inset: 0, backgroundImage: `linear-gradient(${LINE} 1px, transparent 1px), linear-gradient(90deg, ${LINE} 1px, transparent 1px)`, backgroundSize: variant === "diagram" ? "72px 72px" : "96px 96px", opacity: variant === "diagram" ? .22 : .13}} />}
-      {(variant === "editorial" || variant === "image_led") && <div style={{position: "absolute", width: 760, height: 760, left: 650 + x, top: 1120 + y, borderRadius: "50%", background: accent, opacity: .07, filter: "blur(2px)"}} />}
+      
+      {/* Drifting gradient mesh (Rule 5 & 7) */}
+      {(variant === "editorial" || variant === "image_led") && (
+        <>
+          <div style={{position: "absolute", width: 900, height: 900, left: -200 + x, top: -200 + y, borderRadius: "50%", background: accent, opacity: .05, filter: "blur(80px)"}} />
+          <div style={{position: "absolute", width: 900, height: 900, right: -200 - x, bottom: -200 - y, borderRadius: "50%", background: accent, opacity: .06, filter: "blur(90px)"}} />
+        </>
+      )}
       {chrome && <>
         <div style={{position: "absolute", left: 58, right: 58, top: 54, height: 4, borderRadius: 4, background: "rgba(10,10,11,.08)"}}><div style={{height: "100%", width: `${Math.max(2, progress * 100)}%`, background: accent, borderRadius: 4}} /></div>
         <div style={{position: "absolute", left: 58, top: 84, fontFamily: "Arial, sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: 4, color: INK}}>COLONY V</div>
@@ -79,10 +86,17 @@ const SubjectImage: React.FC<{name: string; duration: number; side?: "left" | "r
   if (!available) return null;
   const frame = useCurrentFrame();
   const reveal = spring({frame: frame - 8, fps: 30, config: {damping: 20, stiffness: 90}});
-  const scale = interpolate(frame, [0, duration], [1.08, 1], {extrapolateRight: "clamp"});
+  
+  // Subtle drift (Rule 7: idle elements breathe)
+  const xDrift = Math.sin(frame / 120) * 10;
+  const yDrift = Math.cos(frame / 100) * 5;
+  
+  // Proper Ken Burns (Rule 6)
+  const scale = interpolate(frame, [0, duration], [1.0, 1.08], {extrapolateRight: "clamp", extrapolateLeft: "clamp"});
+
   return (
-    <div style={{position: "absolute", top: treatment === "logo_mark" ? 420 : 250, [side]: treatment === "logo_mark" ? 70 : -70, width: treatment === "logo_mark" ? 420 : 660, height: treatment === "logo_mark" ? 260 : 1100, overflow: "hidden", borderRadius: treatment === "logo_mark" ? 0 : 44, background: treatment === "logo_mark" ? "transparent" : "#fff", opacity: reveal, transform: `translateX(${(1 - reveal) * (side === "right" ? 70 : -70)}px)`}}>
-      <Img src={staticFile(`images/${name}.png`)} style={{width: "100%", height: "100%", objectFit: treatment === "logo_mark" ? "contain" : "cover", transform: treatment === "logo_mark" ? `scale(${.9 + reveal * .1})` : `scale(${scale})`, filter: "saturate(.92) contrast(1.03)"}} />
+    <div style={{position: "absolute", top: treatment === "logo_mark" ? 420 : 250, [side]: treatment === "logo_mark" ? 70 : -70, width: treatment === "logo_mark" ? 420 : 660, height: treatment === "logo_mark" ? 260 : 1100, overflow: "hidden", borderRadius: treatment === "logo_mark" ? 0 : 44, background: treatment === "logo_mark" ? "transparent" : "#fff", opacity: reveal, transform: `translateX(${(1 - reveal) * (side === "right" ? 70 : -70)}px) translateY(${yDrift}px)`}}>
+      <Img src={staticFile(`images/${name}.png`)} style={{width: "100%", height: "100%", objectFit: treatment === "logo_mark" ? "contain" : "cover", transform: treatment === "logo_mark" ? `scale(${.9 + reveal * .1})` : `scale(${scale}) translateX(${xDrift}px)`, filter: "saturate(.95) contrast(1.05)"}} />
       {treatment !== "logo_mark" && <div style={{position: "absolute", inset: 0, background: side === "right" ? "linear-gradient(90deg, #f8f8f6 0%, transparent 38%)" : "linear-gradient(270deg, #f8f8f6 0%, transparent 38%)"}} />}
     </div>
   );
@@ -121,8 +135,10 @@ const KineticScene: React.FC<{beat: Beat; duration: number; accent: string; inde
       <div style={{position: "absolute", left: 64, top: 300, width: 700}}>
         <div style={{fontFamily: "Arial, sans-serif", color: accent, fontSize: 17, fontWeight: 800, letterSpacing: 2, marginBottom: 34, ...enter(frame, 0)}}>WHAT IT MEANS</div>
         {sentences.map((sentence, i) => {
-          const visible = spring({frame: frame - i * 18, fps: 30, config: {damping: 20, stiffness: 90}});
-          return <div key={sentence} style={{fontFamily: "Arial, sans-serif", fontSize: i === active ? 47 : 34, lineHeight: 1.2, fontWeight: i === active ? 800 : 600, color: i === active ? INK : "rgba(10,10,11,.28)", marginBottom: 34, opacity: visible, transform: `translateX(${(1-visible) * -28}px)`, transition: "none"}}><span style={{color: i === active ? accent : "transparent", marginRight: 14}}>—</span>{sentence}</div>;
+          // Staggered choregraphy (Rule 3)
+          const visible = spring({frame: frame - i * 18, fps: 30, config: {damping: 16, stiffness: 120}});
+          const exit = interpolate(frame, [duration - 10, duration], [1, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
+          return <div key={sentence} style={{fontFamily: "Arial, sans-serif", fontSize: i === active ? 47 : 34, lineHeight: 1.2, fontWeight: i === active ? 800 : 600, color: i === active ? INK : "rgba(10,10,11,.28)", marginBottom: 34, opacity: visible * exit, transform: `translateX(${(1-visible) * -28}px)`, transition: "none"}}><span style={{color: i === active ? accent : "transparent", marginRight: 14}}>—</span>{sentence}</div>;
         })}
       </div>
     </AbsoluteFill>
@@ -225,6 +241,18 @@ const OutroScene: React.FC<{text: string; duration: number; accent: string}> = (
   );
 };
 
+const Vignette: React.FC = () => (
+  <AbsoluteFill style={{pointerEvents: "none", background: "radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.3) 150%)"}} />
+);
+
+const Grain: React.FC = () => {
+  const frame = useCurrentFrame();
+  const seed = (frame % 4) * 50;
+  return (
+    <AbsoluteFill style={{pointerEvents: "none", opacity: 0.28, backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' stitchTiles='stitch' seed='${seed}'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`}} />
+  );
+};
+
 export const ContentVideo: React.FC<VideoProps> = ({script}) => {
   const allText = `${script.hook} ${script.body}`;
   const accent = accentFor(allText);
@@ -251,6 +279,11 @@ export const ContentVideo: React.FC<VideoProps> = ({script}) => {
         );
       })}
       <Sequence from={totalFrames - outroFrames} durationInFrames={outroFrames}><OutroScene text={script.cta} duration={outroFrames} accent={accent} /></Sequence>
+      
+      {/* 5-layer stack rule: Grade + Grain + Vignette on top */}
+      <div style={{position: "absolute", inset: 0, pointerEvents: "none", mixBlendMode: "overlay", opacity: 0.15, background: "linear-gradient(45deg, #101014 0%, transparent 100%)"}} />
+      <Grain />
+      <Vignette />
     </AbsoluteFill>
   );
 };
