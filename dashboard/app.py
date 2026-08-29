@@ -383,6 +383,12 @@ async def launch_production_run(stories: int, *, source: str = "manual") -> dict
     reset_agent_activity()
     persist_pipeline_state()
 
+    if scheduler_config.get("enabled"):
+        hours = scheduler_config.get("interval_hours") or 6
+        scheduler_config["next_run"] = (datetime.now() + timedelta(hours=hours)).isoformat()
+        if source != "scheduler":
+            log(f"Schedule armed: next run in {hours}h (or when this run completes).")
+
     model_id = settings["model"].get("model_id", "gemini/gemini-3.5-flash")
     model_env = {
         **os.environ,
@@ -729,6 +735,8 @@ async def api_pipeline_stop():
     pipeline_state["paused"] = False
     pipeline_state["running"] = False
     pipeline_state["current_step"] = "stopped"
+    scheduler_config["next_run"] = None
+    log("Pipeline stopped. Schedule disarmed; click Run to arm it again.")
     from colonyv_agent import pipeline_runtime
     pipeline_runtime.request_stop()
     proc = pipeline_state.get("current_process")
@@ -780,9 +788,10 @@ async def api_settings_set(request: Request):
             scheduler_config["interval_hours"] = float(scheduler_values["interval_hours"])
         if scheduler_values.get("videos_per_run"):
             scheduler_config["stories"] = int(scheduler_values["videos_per_run"])
-        scheduler_config["next_run"] = (
-            datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
-        ).isoformat()
+        if scheduler_config.get("next_run"):
+            scheduler_config["next_run"] = (
+                datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
+            ).isoformat()
     settings["model"].setdefault("api_keys", {}).pop("gemini", None)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     save_settings()
@@ -1875,7 +1884,8 @@ scheduler_config = {
     "last_run": None,
     "next_run": None,
 }
-scheduler_config["next_run"] = (datetime.now() + timedelta(hours=scheduler_config["interval_hours"])).isoformat()
+# Do NOT arm the schedule at startup. A manual run is the trigger that starts
+# the cadence; until then, saving settings / restarting must not fire runs.
 
 
 @app.get("/api/scheduler")
@@ -1891,9 +1901,10 @@ async def api_scheduler_set(request: Request):
         "interval_hours": body.get("interval_hours", 6),
         "stories": body.get("stories", settings["pipeline"].get("videos_per_run", 1)),
     })
-    scheduler_config["next_run"] = (
-        datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
-    ).isoformat()
+    if scheduler_config.get("next_run"):
+        scheduler_config["next_run"] = (
+            datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
+        ).isoformat()
     settings["scheduler"].update({
         "enabled": True,
         "interval_hours": scheduler_config["interval_hours"],
