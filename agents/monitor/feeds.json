@@ -1,0 +1,37 @@
+[
+  {
+    "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+    "category": "ai",
+    "enabled": true
+  },
+  {
+    "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+    "category": "ai",
+    "enabled": true
+  },
+  {
+    "url": "https://feeds.arstechnica.com/arstechnica/technology-lab",
+    "category": "tech",
+    "enabled": true
+  },
+  {
+    "url": "https://www.wired.com/feed/rss",
+    "category": "tech",
+    "enabled": true
+  },
+  {
+    "url": "https://cointelegraph.com/rss",
+    "category": "crypto",
+    "enabled": true
+  },
+  {
+    "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "category": "crypto",
+    "enabled": true
+  },
+  {
+    "url": "https://hnrss.org/best?q=AI+OR+LLM+OR+GPT+OR+crypto+OR+blockchain&count=15",
+    "category": "tech",
+    "enabled": true
+  }
+]

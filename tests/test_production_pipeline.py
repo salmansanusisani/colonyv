@@ -8,7 +8,7 @@ from colonyv_agent.tools import pipeline
 
 def test_production_agent_has_execution_and_gate_tools():
     names = {getattr(tool, "__name__", str(tool)) for tool in production_agent.tools}
-    assert {"discover_stories", "research_story", "write_script", "plan_scenes",
+    assert {"discover_stories", "research_story", "write_script", "direct_visuals",
             "request_render", "publish_to_youtube", "analyze_performance"} <= names
     assert {"evaluate_story_candidate", "evaluate_research_gate", "evaluate_render_result",
             "evaluate_publication_gate", "evaluate_upload_result"} <= names

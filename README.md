@@ -15,54 +15,90 @@ ColonyV is built for the **Taskmaster** track of the All Things Agentic Hackatho
 ## Architecture
 
 ```mermaid
-flowchart TD
-    Trigger[Creator or scheduled trigger] --> Dashboard[ColonyV Dashboard]
-    Dashboard --> Run[Cloud Run FastAPI service]
-    Run --> Director[Google ADK Editorial Director]
-    Director <--> Gemini[Gemini 3.5 Flash on Vertex AI]
+flowchart TB
+    Trigger["Creator action or scheduler"] --> Dashboard["ColonyV dashboard (FastAPI + WebSocket)"]
+    Dashboard --> Service["Cloud Run service"]
+    Service --> Director["Google ADK production director"]
+    Director <--> Gemini["Gemini 3.5 Flash (Vertex AI)"]
+    Service <--> Firestore[("Firestore: run state and trace")]
 
-    Director --> Discovery[Discovery Agent]
-    Discovery --> Research[Research Agent]
-    Research --> Assets[Editorial Asset Scout]
-    Assets --> Script[Scriptwriter and Visual Director]
-    Script --> Producer[Remotion Visual Producer]
-    Producer --> Publisher[YouTube Publisher]
-    Publisher --> Analyst[Analyst Agent]
+    Director --> Discovery["1. Discovery"]
+    Discovery --> Research["2. Research"]
+    Research --> Script["3. Scriptwriter"]
+    Script --> ArtDir["4. Art Director"]
+    ArtDir --> Producer["5. Visual Producer"]
+    Producer --> Publisher["6. Publisher"]
+    Publisher --> Analyst["7. Analyst"]
+    Analyst -. "learned signals" .-> Discovery
 
-    Run <--> Firestore[(Firestore run state and trace)]
-    Assets -. next phase .-> Storage[(Cloud Storage assets)]
-    Director -. next phase .-> PubSub[Pub/Sub events]
-    PubSub -. next phase .-> RenderJob[Cloud Run Render Job]
-    RenderJob -.-> Storage
-    Storage -.-> Publisher
+    ArtDir -- "VisualPlan" --> Producer
+    Producer --> TTS["edge-tts narration"]
+    Producer --> Illo["Illustrator: gemini-2.5-flash-image"]
+    Producer --> Remotion["Remotion + headless Chromium"]
+    Remotion --> MP4["1080x1920 MP4"]
+    MP4 --> Publisher
+    Publisher --> YouTube["YouTube Data API v3"]
 ```
 
-Current production path:
+Production path:
 
 ```text
-Cloud Run dashboard/API -> Google ADK Editorial Director -> Gemini on Vertex AI
-                       -> Firestore run state and live Agent Workspace
-                       -> Discovery -> Research -> Script -> ScenePlan -> Remotion -> YouTube -> Analyst
+Cloud Run dashboard/API -> Google ADK production director -> Gemini on Vertex AI
+                        -> Firestore run state and live Agent Workspace
+                        -> Discovery -> Research -> Script -> Art Director
+                        -> Visual Producer (narration + illustration + Remotion)
+                        -> YouTube -> Analyst
 ```
 
 **7 autonomous agents** run sequentially per story:
 
 | Step | Agent | What it does | Output |
 |------|-------|-------------|--------|
-| 1 | **Monitor** | Scans live web/topic search, scores content by relevance/novelty/urgency via LLM | `*_monitor.json` |
-| 2 | **Research** | Crawls source URLs, extracts content via self-healing scraper, fact-checks via LLM | `*_research.json` |
-| 3 | **Scriptwriter** | Generates hook/body/CTA script with visual beats via LLM, incorporating learned signals | `*_script.json` |
-| 4 | **ScenePlanner** | Picks a Remotion scene template per beat (stat/diagram/kinetic/image/timeline/quiet) with exact figures | `*_scene_plan.json` |
-| 5 | **Producer** | TTS narration + Remotion video render (portrait 1080x1920) with advanced motion-design rules | `*.mp4` |
-| 6 | **Publisher** | OAuth2 upload to YouTube with title/description/tags. **Always publishes** (never blocks on gate failure). | YouTube URL |
-| 7 | **Analyst** | Post-run performance analysis, learns from feedback signals, updates Monitor/Scriptwriter prompts | `analyst_output.json` |
+| 1 | **Discovery** | Scans RSS and topic search, scores candidates on relevance/novelty/urgency with Gemini | `*_monitor.json` |
+| 2 | **Research** | Crawls sources, extracts text with a self-healing scraper, verifies each claim and records contradictions and confidence | `*_research.json` |
+| 3 | **Scriptwriter** | Writes hook/body/CTA and proposes visual beats, using only claims research verified | `*_script.json` |
+| 4 | **Art Director** | Designs this specific episode: concept, semantic palette, illustration style contract, and a per-shot composition and illustration brief | `*_visual_plan.json` |
+| 5 | **Visual Producer** | Narrates with TTS, measures real audio durations, generates illustrations, and renders the composition with Remotion | `*.mp4` |
+| 6 | **Publisher** | OAuth2 upload to YouTube with generated title, description, and tags. The publication gate reports its verdict but does not abort the run — see below | YouTube URL |
+| 7 | **Analyst** | Reviews the finished run and writes learned signals back into Discovery and Scriptwriter prompts | `analyst_output.json` |
+
+### How a video is designed
+
+The visual system is generative rather than templated. There is no fixed set of
+scene templates to pick from; the Art Director writes a **VisualPlan**
+(`contracts/visual_plan.schema.json`) and the renderer composes it from
+independent layers.
+
+- **Semantic colour.** The accent is a decision, not a keyword match. A verified
+  outcome is green, a failure or risk is red, a story whose colour would be
+  arbitrary stays monochrome. Ground and ink are fixed brand constants, so an
+  episode can never drift off-brand.
+- **Ten composable layouts.** `hero_statement`, `illustration_full`,
+  `illustration_top`, `illustration_side`, `data_readout`, `node_flow`,
+  `timeline_rail`, `compare_two_up`, `quote_block`, `outro_brand`. Every shot
+  chooses a layout, a type scale, a text anchor, the words to emphasise, and a
+  transition.
+- **Generated illustrations.** Each art-bearing shot gets a bespoke illustration
+  from `gemini-2.5-flash-image`, drawn to a style contract the Art Director wrote
+  for this episode, on the brand's paper ground, wordless, and generated at the
+  aspect ratio of the region that will display it. Plates are content-hash cached,
+  so a re-render never pays twice.
+- **Audio-locked timing.** Narration is generated first and measured with
+  `ffprobe`; shot durations are derived from real audio length, so visuals cannot
+  drift out of sync.
+- **Graceful degradation.** If the Art Director fails, the producer directs
+  inline. If an illustration fails, that shot loses its plate and downgrades to a
+  typographic layout. A missing illustration never fails a video.
 
 ## Tech Stack
 
-- **LLM**: Google Gemini through Vertex AI (`gemini-3.5-flash`)
-- **TTS**: edge-tts (`en-US-AndrewNeural`)
-- **Video**: Remotion 4.0.514 + Chromium
+- **Reasoning**: Google Gemini through Vertex AI (`gemini-3.5-flash`)
+- **Illustration**: Gemini image generation (`gemini-2.5-flash-image`), 
+  content-hash cached
+- **TTS**: edge-tts (`en-US-AndrewNeural`), measured with `ffprobe`
+- **Video**: Remotion 4 + headless Chromium, 1080x1920 at 30fps
 - **Dashboard**: FastAPI + Jinja2 + WebSocket (10-tab SPA)
+- **State**: Firestore run state and trace
 - **YouTube**: Google API OAuth2 with auto token refresh
 - **Framework**: Google ADK
 
@@ -124,16 +160,19 @@ Open **http://localhost:8000** — 10 tabs:
 ### CLI
 
 ```bash
-# Run full pipeline (1 story, skip YouTube)
-python3 agents/pipeline.py --stories 1 --skip-publish
+# Render one story end to end without uploading
+python3 agents/pipeline.py --stories 1 --sandbox
 
-# Run with sandbox mode (no YouTube upload)
-python3 agents/pipeline.py --stories 2 --sandbox
+# Same thing, explicit flag
+python3 agents/pipeline.py --stories 1 --skip-publish
 
 # Run individual agents
 python3 agents/monitor/monitor.py --top 5
 python3 agents/research/research.py --story-json output/xxx_monitor.json
 python3 agents/scriptwriter/scriptwriter.py --research-json output/xxx_research.json
+python3 agents/artdirector/artdirector.py --script-json output/xxx_script.json \
+    --research-json output/xxx_research.json --illustrations 4
+python3 producer/build_video.py output/xxx_script.json --output out.mp4
 python3 agents/publisher/youtube.py upload video.mp4 --title "Title" --privacy unlisted
 python3 agents/publisher/youtube.py auth  # Re-authenticate YouTube
 ```
@@ -169,30 +208,40 @@ Edit `agents/monitor/feeds.json` or use the **Feeds** tab in the dashboard:
 ```
 colonyv/
 ├── agents/
-│   ├── monitor/monitor.py      # RSS feed scanner + LLM scoring
-│   ├── research/research.py    # Web crawl + extraction + LLM analysis
-│   ├── scriptwriter/scriptwriter.py  # LLM script generation
-│   ├── publisher/youtube.py    # YouTube OAuth2 + upload
-│   ├── analyst/analyst.py      # Performance analysis + learning
-│   ├── pipeline.py             # Sequential pipeline orchestrator
-│   ├── cleanup.py              # Old output cleanup
-│   └── status.py               # Health checks + recent runs
+│   ├── monitor/monitor.py           # RSS + topic scan, Gemini scoring
+│   ├── research/research.py         # Crawl, extract, verify claims
+│   ├── scriptwriter/scriptwriter.py # Hook/body/CTA + visual beats
+│   ├── artdirector/artdirector.py   # Authors the VisualPlan for one episode
+│   ├── publisher/youtube.py         # YouTube OAuth2 + upload
+│   ├── analyst/analyst.py           # Post-run analysis + learned signals
+│   ├── pipeline.py                  # Sequential CLI orchestrator
+│   ├── cleanup.py                   # Old output cleanup
+│   └── status.py                    # Health checks + recent runs
 ├── producer/
-│   ├── build_video.py          # TTS + SFX + image gen + Remotion render
-│   ├── src/
-│   │   ├── Video.tsx           # Main Remotion composition
-│   │   ├── Root.tsx            # Composition registration
-│   │   └── index.ts            # Entry point
-│   └── public/                 # Audio, images, SFX
+│   ├── build_video.py               # 6-stage producer: narrate, measure,
+│   │                                #   direct, illustrate, stage, render
+│   ├── illustrate.py                # Gemini illustration engine + cache
+│   └── src/
+│       ├── Root.tsx                 # Composition + duration from props
+│       ├── Video.tsx                # Plan-driven timeline builder
+│       ├── layouts.tsx              # Shot composer (the 10 layouts)
+│       ├── theme.ts                 # Brand constants, motion languages
+│       ├── types.ts                 # TypeScript mirror of the VisualPlan
+│       └── layers/                  # Paper, Plate, Copy, Data, Callout,
+│                                    #   Brand, Transition
+├── colonyv_agent/                   # Google ADK agents, tools, and stages
+│   ├── agent.py                     # root_agent + production_agent
+│   ├── factory.py                   # Full autonomous loop with gates
+│   ├── stages.py                    # Stage graph and gate decisions
+│   └── tools/                       # pipeline tools + editorial gates
 ├── dashboard/
-│   ├── app.py                  # FastAPI backend (API + pipeline runner)
-│   └── templates/dashboard.html  # 10-tab SPA frontend
-├── contracts/                  # JSON schemas for all agent I/O
-├── tests/
-│   ├── test_parser.py          # JSON parser tests
-│   └── test_agents.py          # Agent integration tests
+│   ├── app.py                       # FastAPI backend + pipeline runner
+│   └── templates/dashboard.html     # 10-tab SPA
+├── contracts/                       # JSON schemas for every agent boundary
+│   └── visual_plan.schema.json      # The Art Director's output contract
+├── tests/                           # 65 tests
+├── Dockerfile                       # Python + Node + Chromium + FFmpeg
 ├── requirements.txt
-├── .gitignore
 └── README.md
 ```
 
@@ -202,7 +251,11 @@ Judges and evaluators can verify COLONY-V locally using the following reproducib
 
 ### 1. Run Automated Test Suite (Pytest)
 
-The repository includes 33 unit and integration tests covering JSON contract validations, agent schemas, publication policy gates, and runtime pause/resume/stop mechanics:
+The repository includes 65 unit and integration tests covering JSON contract
+validation, agent schemas, publication policy gates, runtime pause/resume/stop
+mechanics, and the visual system — Art Director sanitisation and layout repair,
+illustration budget enforcement, per-layout aspect selection, and ground-tone
+matching:
 
 ```bash
 source .venv/bin/activate
@@ -211,7 +264,8 @@ pytest -v
 
 ### 2. Verify Motion Graphics Compiler (TypeScript)
 
-Validate that all Remotion 4 components, scene templates, and dynamic kinetic animations pass strict TypeScript compilation:
+Validate that the layer library, layout composer, and timeline builder pass
+strict TypeScript compilation:
 
 ```bash
 cd producer
@@ -261,6 +315,11 @@ Then navigate to **`http://localhost:8000`** in your browser.
 | `GOOGLE_API_KEY` | Local alternative | Gemini Developer API key |
 | `COLONYV_GEMINI_MODEL` | No | Gemini model identifier |
 | `REMOTION_CHROMIUM_EXECUTABLE_PATH` | No | Path to Chromium (default: `/usr/bin/chromium`) |
+| `COLONYV_IMAGE_MODEL` | No | Illustration model (default `gemini-2.5-flash-image`) |
+| `COLONYV_ILLUSTRATION_BUDGET` | No | Max illustrations per video (default `4`) |
+| `COLONYV_ILLUSTRATION_WORKERS` | No | Concurrent image requests (default `1`) |
+| `COLONYV_ILLUSTRATION_INTERVAL` | No | Seconds between image requests (default `1.5`) |
+| `PRODUCER_TIMEOUT` | No | Render timeout in seconds (default `1800`) |
 
 ## Dashboard Configuration
 
@@ -298,7 +357,7 @@ python3 scripts/check_gemini.py --vertex
 adk web colonyv_agent
 ```
 
-The ADK Editorial Director exposes `root_agent` (interactive Q&A) and `production_agent` (autonomous production director). The production director's tool suite operates the real production agents — `discover_stories`, `research_story`, `write_script`, `request_render`, `publish_to_youtube`, `analyze_performance` — and the factory driver (`colonyv_agent/factory.py`) runs the full loop with editorial gates (story rejection, research retry/stop, render retry, upload retry). The publication gate never aborts a run: a story that fails verification is re-verified, then the next candidate is tried, and as a last resort the best available video is published anyway.
+The ADK Editorial Director exposes `root_agent` (interactive Q&A) and `production_agent` (autonomous production director). The production director's tool suite operates the real production agents — `discover_stories`, `research_story`, `write_script`, `direct_visuals`, `request_render`, `publish_to_youtube`, `analyze_performance` — and the factory driver (`colonyv_agent/factory.py`) runs the full loop with editorial gates (story rejection, research retry/stop, render retry, upload retry). The publication gate never aborts a run: a story that fails verification is re-verified, then the next candidate is tried, and as a last resort the best available video is published anyway.
 
 See [README_GOOGLE_CLOUD.md](README_GOOGLE_CLOUD.md) for Vertex AI, Firestore, Docker, and Cloud Run setup.
 
@@ -311,6 +370,8 @@ See [README_GOOGLE_CLOUD.md](README_GOOGLE_CLOUD.md) for Vertex AI, Firestore, D
 | `agents/publisher/youtube_token.json` | YouTube OAuth2 tokens (auto-generated) |
 | `output/cost_log.json` | LLM cost tracking across runs |
 | `output/feedback_signals.json` | Analyst learned signals |
+| `contracts/visual_plan.schema.json` | The Art Director's output contract |
+| `producer/.illustration_cache/` | Content-hash cache of generated plates |
 
 ## License
 
