@@ -181,11 +181,16 @@ if AUTH_USERNAME and os.environ.get("ADMIN_PASSWORD"):
     AUTH_PASSWORD_HASH = f"pbkdf2_sha256$120000${salt}${dk.hex()}"
 AUTH_ENABLED = AUTH_USERNAME != "" and AUTH_PASSWORD_HASH is not None
 
+SESSION_COOKIE = "colonyv_session"
 SESSION_TTL_SECONDS = 24 * 3600
-SESSIONS: dict[str, float] = {}  # token -> expiry epoch
 LOGIN_ATTEMPTS: dict[str, tuple[int, float]] = {}  # ip -> (fails, lockout_until)
 MAX_LOGIN_ATTEMPTS = 10
 LOCKOUT_SECONDS = 900
+# Stateless signed session cookie: every Cloud Run instance (and every restart)
+# validates the same token without shared memory. Set an identical
+# SESSION_SECRET in each environment; a random per-process key is used as a
+# fallback for local dev.
+SESSION_KEY: bytes = (os.environ.get("SESSION_SECRET") or secrets.token_hex(32)).encode()
 
 PUBLIC_PATHS = {
     "/healthz",
@@ -221,14 +226,27 @@ def _login_allowed(ip: str) -> tuple[bool, int]:
     return True, 0
 
 
-def _valid_session(request: Request) -> bool:
-    token = request.cookies.get("colonyv_session")
-    if not token or token not in SESSIONS:
+def _session_token(username: str) -> str:
+    expires = int(time.time()) + SESSION_TTL_SECONDS
+    payload = f"{username}|{expires}"
+    sig = hmac.new(SESSION_KEY, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{payload}|{sig}"
+
+
+def _cookie_valid(value: str | None) -> bool:
+    if not value:
         return False
-    if SESSIONS[token] <= time.time():
-        SESSIONS.pop(token, None)
+    parts = value.split("|")
+    if len(parts) != 3:
         return False
-    return True
+    payload, sig = f"{parts[0]}|{parts[1]}", parts[2]
+    expect = hmac.new(SESSION_KEY, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expect):
+        return False
+    try:
+        return int(parts[1]) > int(time.time())
+    except ValueError:
+        return False
 
 
 LOGIN_HTML = """<!DOCTYPE html>
@@ -302,7 +320,7 @@ async def _auth_http_middleware(request: Request, call_next):
     path = request.url.path
     if path.startswith("/static/") or path in PUBLIC_PATHS:
         return await call_next(request)
-    if _valid_session(request):
+    if _cookie_valid(request.cookies.get(SESSION_COOKIE)):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"error": "Unauthorized. Please log in."}, status_code=401)
@@ -333,11 +351,10 @@ async def api_login(request: Request):
     password = str(body.get("password", ""))
     if username == AUTH_USERNAME and _auth_check_password(password):
         LOGIN_ATTEMPTS.pop(ip, None)
-        token = secrets.token_urlsafe(32)
-        SESSIONS[token] = time.time() + SESSION_TTL_SECONDS
+        token = _session_token(username)
         resp = JSONResponse({"ok": True})
         resp.set_cookie(
-            "colonyv_session",
+            SESSION_COOKIE,
             token,
             max_age=SESSION_TTL_SECONDS,
             path="/",
@@ -362,7 +379,7 @@ async def api_login(request: Request):
 @app.post("/api/logout")
 async def api_logout():
     resp = JSONResponse({"ok": True})
-    resp.delete_cookie("colonyv_session", path="/")
+    resp.delete_cookie(SESSION_COOKIE, path="/")
     return resp
 
 
@@ -1543,11 +1560,9 @@ async def api_youtube_disconnect():
 
 @app.websocket("/ws/logs")
 async def ws_logs(websocket: WebSocket):
-    if AUTH_ENABLED:
-        token = websocket.cookies.get("colonyv_session")
-        if not (token in SESSIONS and SESSIONS.get(token, 0) > time.time()):
-            await websocket.close(code=4001)
-            return
+    if AUTH_ENABLED and not _cookie_valid(websocket.cookies.get(SESSION_COOKIE)):
+        await websocket.close(code=4001)
+        return
     await websocket.accept()
     log_subscribers.append(websocket)
     try:

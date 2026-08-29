@@ -18,7 +18,6 @@ def client(monkeypatch):
     monkeypatch.setattr(app_module, "AUTH_PASSWORD_HASH", _make_hash("s3cret"))
     monkeypatch.setattr(app_module, "AUTH_ENABLED", True)
     monkeypatch.setattr(app_module, "LOGIN_ATTEMPTS", {})
-    monkeypatch.setattr(app_module, "SESSIONS", {})
     with TestClient(app_module.app) as c:
         yield c
 
@@ -84,3 +83,20 @@ def test_auth_disabled_allows_anonymous(monkeypatch):
     with TestClient(app_module.app) as c:
         assert c.get("/").status_code == 200
         assert c.get("/api/status").status_code == 200
+
+
+def test_signed_session_is_stateless():
+    token = app_module._session_token("owner")
+    assert app_module._cookie_valid(token)
+    assert app_module._cookie_valid(token + "x") is False
+    assert app_module._cookie_valid("owner|9999999999|deadbeef") is False
+    assert app_module._cookie_valid("attacker|9876543210|" + "0" * 32) is False
+
+
+def test_cookie_validation_uses_shared_secret(monkeypatch):
+    fake = "sharedsecretforinstanceparity"
+    monkeypatch.setattr(app_module, "SESSION_KEY", fake.encode())
+    token = app_module._session_token("owner")
+    assert app_module._cookie_valid(token)
+    monkeypatch.setattr(app_module, "SESSION_KEY", b"anotherinstancekey")
+    assert app_module._cookie_valid(token) is False
