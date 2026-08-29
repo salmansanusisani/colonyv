@@ -240,21 +240,17 @@ LOGIN_HTML = """<!DOCTYPE html>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-           background: radial-gradient(1200px 600px at 50% -10%, #16233f 0%, #07090e 55%);
-           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #e2e8f0; }
-    .card { width: 340px; background: #0f172a; border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 18px; padding: 36px 32px; box-shadow: 0 24px 60px rgba(0,0,0,0.5); }
-    .logo { font-size: 22px; font-weight: 700; letter-spacing: 4px; color: #ffffff; margin-bottom: 4px; }
-    .sub { color: #64748b; font-size: 13px; margin-bottom: 28px; }
-    label { display: block; font-size: 12px; color: #94a3b8; margin: 14px 0 6px; }
-    input { width: 100%; background: #0b1120; border: 1px solid rgba(255,255,255,0.1); color: #e2e8f0;
-            border-radius: 10px; padding: 12px 14px; font-size: 14px; outline: none; }
-    input:focus { border-color: #34d399; }
-    button { width: 100%; margin-top: 24px; background: #10b981; color: #04120d; font-weight: 700;
-             border: none; border-radius: 10px; padding: 13px; font-size: 14px; cursor: pointer; }
-    button:hover { background: #34d399; }
+           background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #000000; }
+    .card { width: 340px; background: #ffffff; border: 2px solid #000000; border-radius: 16px; padding: 36px 32px; box-shadow: 8px 8px 0 0 #000000; }
+    .logo { font-size: 22px; font-weight: 800; letter-spacing: 4px; color: #000000; margin-bottom: 4px; }
+    .sub { color: #555555; font-size: 13px; margin-bottom: 28px; }
+    label { display: block; font-size: 12px; font-weight: 600; color: #000000; margin: 14px 0 6px; }
+    input { width: 100%; background: #ffffff; border: 1.5px solid #000000; color: #000000; border-radius: 8px; padding: 12px 14px; font-size: 14px; outline: none; }
+    input:focus { border-width: 2.5px; }
+    button { width: 100%; margin-top: 24px; background: #000000; color: #ffffff; font-weight: 700; border: 1.5px solid #000000; border-radius: 8px; padding: 13px; font-size: 14px; cursor: pointer; }
+    button:hover { background: #ffffff; color: #000000; }
     button:disabled { opacity: 0.5; cursor: wait; }
-    .msg { display: none; margin-top: 16px; font-size: 13px; border-radius: 8px; padding: 10px 12px; background: #3f1d1d; color: #fca5a5; }
+    .msg { display: none; margin-top: 16px; font-size: 13px; border-radius: 8px; padding: 10px 12px; border: 1px solid #000000; background: #ffffff; color: #000000; }
     .msg.show { display: block; }
   </style>
 </head>
