@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import secrets
 import signal
 import subprocess
@@ -68,6 +69,7 @@ DEFAULT_SETTINGS = {
         "categories": ["ai", "tech", "crypto"],
         "active_topic": "AI & Machine Learning",
         "custom_topics": ["AI & Machine Learning", "Cryptocurrency", "Big Tech & Startups", "Hardware & GPUs"],
+        "selected_topics": ["AI & Machine Learning", "Cryptocurrency", "Big Tech & Startups", "Hardware & GPUs"],
         "topic_prompt": "",
         "brand_voice": "engaging_news",
     },
@@ -159,6 +161,31 @@ def save_settings() -> None:
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, SETTINGS_PATH)
+
+
+def pick_run_topic() -> str:
+    """Pick the focus topic for one production run.
+
+    The dashboard's Topic Focus panel lets the operator arm any number of
+    categories (selected_topics). Each cycle a run draws one of the armed
+    topics uniformly at random, so successive runs drift across the enabled
+    categories instead of reporting the same niche every time. Falls back to
+    the legacy active_topic, then to the first custom topic, so a saved
+    selection is never an empty string.
+    """
+    content = settings.get("content", {})
+    pool = [t for t in content.get("selected_topics", []) if isinstance(t, str) and t.strip()]
+    if not pool:
+        legacy = content.get("active_topic") or ""
+        if legacy.strip():
+            pool = [legacy]
+        else:
+            first = next(
+                (t for t in content.get("custom_topics", []) if isinstance(t, str) and t.strip()), ""
+            )
+            if first:
+                pool = [first]
+    return pool[random.choice(range(len(pool)))] if pool else ""
 
 app = FastAPI(title="COLONY — Autonomous Media Orchestrator")
 app.mount("/static", StaticFiles(directory=str(DASHBOARD_DIR / "static")), name="static")
@@ -646,12 +673,14 @@ async def _begin_production_run(stories: int, *, source: str, skip_publish: bool
             log(f"Schedule armed: next run in {hours}h (or when this run completes).")
 
     model_id = settings["model"].get("model_id", "gemini/gemini-3.5-flash")
+    topic = pick_run_topic()
+    log(f"Focus topic for this run: {topic}")
     model_env = {
         **os.environ,
         "COLONY_MODEL_ID": model_id,
         "COLONYV_GEMINI_MODEL": model_id.removeprefix("gemini/"),
         "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-        "COLONY_TOPIC_PROMPT": settings["content"].get("active_topic", ""),
+        "COLONY_TOPIC_PROMPT": topic,
     }
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
@@ -1041,6 +1070,13 @@ async def api_settings_set(request: Request):
         values = body.get(section)
         if isinstance(values, dict):
             settings[section].update(values)
+    content = settings.get("content", {})
+    custom_topics = content.get("custom_topics") or []
+    selected = [t for t in content.get("selected_topics", []) if isinstance(t, str) and t.strip()]
+    if not selected:
+        selected = [t for t in content.get("active_topic", "").split(",") if t.strip()]
+    settings["content"]["selected_topics"] = selected
+    settings["content"]["active_topic"] = selected[0] if selected else (custom_topics[0] if custom_topics else "")
     model_values = body.get("model")
     if isinstance(model_values, dict):
         settings["model"]["provider"] = "gemini"
@@ -1752,7 +1788,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
             "COLONY_MODEL_ID": settings["model"].get("model_id", "gemini/gemini-3.5-flash"),
             "COLONYV_GEMINI_MODEL": settings["model"].get("model_id", "gemini/gemini-3.5-flash").removeprefix("gemini/"),
             "COLONY_MAX_DURATION_SECONDS": str(settings["pipeline"].get("max_duration_seconds", 60)),
-            "COLONY_TOPIC_PROMPT": settings["content"].get("active_topic", ""),
+            "COLONY_TOPIC_PROMPT": pick_run_topic(),
         }
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
             model_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"

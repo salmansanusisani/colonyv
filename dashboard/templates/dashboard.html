@@ -462,6 +462,54 @@
             box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
         }
 
+        /* Topic focus cards: toggle buttons so cursor is a pointer and the
+           selected state is obvious. Clicking arms/disarms a category for the
+           random per-run topic draw. */
+        .topic-card {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            background: #f5f5f7;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        .topic-card:hover {
+            border-color: var(--apple-blue);
+            background: #ffffff;
+            box-shadow: var(--shadow-sm);
+        }
+        .topic-card .topic-check {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1.5px solid #b8b8bc;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            background: transparent;
+            transition: all 0.2s ease;
+            flex: none;
+        }
+        .topic-card.selected {
+            border-color: var(--apple-blue);
+            background: rgba(0, 113, 227, 0.08);
+            color: var(--apple-blue);
+        }
+        .topic-card.selected .topic-check {
+            background: var(--apple-blue);
+            border-color: var(--apple-blue);
+        }
+
         /* Live Step Tracker */
         .step-tracker {
             display: flex;
@@ -1411,7 +1459,7 @@
                             <div class="settings-row" style="display:block; padding-bottom:12px;">
                                 <div class="settings-label" style="margin-bottom:10px;">
                                     <span>Active Focus Area</span>
-                                    <small>Select the primary topic the agent will monitor and produce content for</small>
+                                    <small>Select one or more topics. Each run randomly picks one of the highlighted categories to produce.</small>
                                 </div>
                                 <div id="topicCardsContainer" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-bottom:12px;">
                                     <!-- Populated by JS -->
@@ -2790,6 +2838,7 @@
     }
 
     let customTopics = [];
+    let selectedTopics = [];
     let activeTopic = "";
 
     function renderTopicCards() {
@@ -2797,11 +2846,20 @@
         if (!container) return;
         container.innerHTML = '';
         customTopics.forEach(topic => {
+            const selected = selectedTopics.includes(topic);
             const div = document.createElement('div');
-            div.className = 'topic-card' + (topic === activeTopic ? ' selected' : '');
-            div.textContent = topic;
+            div.className = 'topic-card' + (selected ? ' selected' : '');
+            div.setAttribute('role', 'button');
+            div.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            div.innerHTML = `<span class="topic-check">${selected ? '&#10003;' : ''}</span><span class="topic-label"></span>`;
+            div.querySelector('.topic-label').textContent = topic;
             div.onclick = () => {
-                activeTopic = topic;
+                if (selectedTopics.includes(topic)) {
+                    selectedTopics = selectedTopics.filter(t => t !== topic);
+                } else {
+                    selectedTopics.push(topic);
+                }
+                activeTopic = selectedTopics.length ? selectedTopics[0] : topic;
                 renderTopicCards();
                 saveSettings();
             };
@@ -2815,6 +2873,9 @@
             const clean = t.trim();
             if (!customTopics.includes(clean)) {
                 customTopics.push(clean);
+            }
+            if (!selectedTopics.includes(clean)) {
+                selectedTopics.push(clean);
             }
             activeTopic = clean;
             renderTopicCards();
@@ -2840,6 +2901,12 @@
         
         customTopics = c.custom_topics || ["AI & Machine Learning", "Cryptocurrency", "Big Tech & Startups", "Hardware & GPUs"];
         activeTopic = c.active_topic || customTopics[0];
+        selectedTopics = Array.isArray(c.selected_topics) && c.selected_topics.length
+            ? c.selected_topics.filter(t => customTopics.includes(t))
+            : (activeTopic ? [activeTopic] : []);
+        if (!selectedTopics.length && customTopics.length) {
+            selectedTopics = [customTopics[0]];
+        }
         renderTopicCards();
     }
 
@@ -2880,6 +2947,7 @@
             content: { 
                 active_topic: activeTopic, 
                 custom_topics: customTopics, 
+                selected_topics: selectedTopics,
                 brand_voice: document.getElementById('brandVoice').value 
             } 
         };
