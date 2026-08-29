@@ -9,6 +9,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Michroma&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <!-- Required by the time-axis on the performance chart. Chart.js ships no
+         date implementation of its own. -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
         :root {
             --bg-body: #f5f5f7;
@@ -175,7 +178,6 @@
         .terminal-toggle svg { width:15px; }
         .spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; }
         @keyframes spin { to{transform:rotate(360deg)} }
-        @media (max-width: 900px) { .agent-flow { grid-template-columns:repeat(2, 1fr); } .agent-board::before { display:none; } }
 
         .brand-subtitle {
             font-size: 12px;
@@ -494,76 +496,122 @@
         }
 
         /* Terminal Drawer */
-        .terminal-wrapper {
-            background: #1c1c1e;
+        /* ---- Execution terminal (full-screen overlay) ---- */
+        .terminal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1500;
+            display: flex;
+            align-items: stretch;
+            justify-content: stretch;
+            padding: clamp(0px, 2vw, 28px);
+            background: rgba(12, 12, 14, 0.62);
+            backdrop-filter: blur(10px);
+            animation: terminalIn .22s cubic-bezier(.16,1,.3,1);
+        }
+        .terminal-overlay[hidden] { display: none; }
+        @keyframes terminalIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .terminal-shell {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+            background: #16161a;
+            border: 1px solid rgba(255,255,255,.09);
             border-radius: 16px;
-            padding: 18px;
-            color: #f2f2f7;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            line-height: 1.6;
-            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
-            transition: all 0.3s ease;
+            overflow: hidden;
+            box-shadow: 0 30px 90px rgba(0,0,0,.55);
         }
 
         .terminal-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 12px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            gap: 12px;
+            padding: 14px 18px;
+            border-bottom: 1px solid rgba(255,255,255,.08);
+            background: rgba(255,255,255,.02);
+            flex-shrink: 0;
         }
-
-        .terminal-dots {
+        .terminal-title {
             display: flex;
-            gap: 6px;
-        }
-
-        .topic-card {
-            padding: 14px;
-            border: 2px solid var(--border-color);
-            border-radius: 10px;
-            cursor: pointer;
-            text-align: center;
-            font-weight: 600;
+            align-items: center;
+            gap: 10px;
+            color: #e8e8ed;
             font-size: 13px;
-            transition: all 0.2s ease;
-            background: #fafafa;
-            color: var(--text-primary);
+            font-weight: 700;
+            letter-spacing: -.01em;
+            min-width: 0;
         }
-        .topic-card:hover {
-            border-color: var(--border-hover);
+        .terminal-title svg { width: 16px; height: 16px; color: var(--apple-green); flex-shrink: 0; }
+        .terminal-stream {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 9px;
+            border-radius: 999px;
+            background: rgba(52,199,89,.14);
+            color: var(--apple-green);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .09em;
         }
-        .topic-card.selected {
-            border-color: var(--apple-blue);
-            background: #f0f7ff;
-            color: var(--apple-blue);
-        }
-
-        .terminal-dot {
-            width: 10px;
-            height: 10px;
+        .terminal-stream::before {
+            content: "";
+            width: 6px; height: 6px;
             border-radius: 50%;
+            background: currentColor;
+            animation: pulseDot 1.5s infinite;
         }
+        .terminal-stream.offline { background: rgba(255,159,10,.14); color: var(--apple-amber); }
+        .terminal-stream.offline::before { animation: none; }
+
+        .terminal-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .terminal-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 30px;
+            padding: 0 12px;
+            border: 1px solid rgba(255,255,255,.12);
+            border-radius: 8px;
+            background: rgba(255,255,255,.05);
+            color: #c7c7cc;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .18s ease, color .18s ease, border-color .18s ease;
+        }
+        .terminal-action:hover { background: rgba(255,255,255,.12); color: #fff; }
+        .terminal-close { width: 30px; padding: 0; }
+        .terminal-close svg { width: 15px; height: 15px; }
+        .terminal-close:hover { background: rgba(255,59,48,.9); border-color: transparent; color: #fff; }
 
         .terminal-body {
-            height: 260px;
+            flex: 1;
+            min-height: 0;
             overflow-y: auto;
+            padding: 16px 18px 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12.5px;
+            line-height: 1.65;
+            color: #d1d1d6;
+            overflow-wrap: anywhere;
         }
+        .terminal-body::-webkit-scrollbar { width: 10px; }
+        .terminal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 5px; }
+        .terminal-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.24); }
 
-        .terminal-body.expanded {
-            height: 520px;
-        }
-
-        .log-entry {
-            color: #a1a1a6;
-            margin-bottom: 2px;
-        }
-
+        .log-entry { color: #a1a1a6; margin-bottom: 2px; white-space: pre-wrap; }
         .log-entry.success { color: var(--apple-green); }
         .log-entry.info { color: #64d2ff; }
         .log-entry.warning { color: var(--apple-amber); }
+        .log-entry.error { color: #ff6961; }
 
         /* Tables */
         .apple-table {
@@ -721,8 +769,13 @@
             z-index: 2000;
             display: flex;
             flex-direction: column;
+            align-items: flex-end;
             gap: 10px;
+            /* Bounded so a long message cannot widen the page. */
+            max-width: min(380px, calc(100vw - 32px));
+            pointer-events: none;
         }
+        .toast-shelf > * { pointer-events: auto; max-width: 100%; }
 
         .apple-toast {
             background: rgba(255, 255, 255, 0.9);
@@ -781,14 +834,223 @@
             margin-top: 2px;
         }
 
+        /* ================= Pipeline controls ================= */
+        /*
+          One element per control, styled from data-phase. Previously colour and
+          label were patched with inline styles from five different code paths,
+          which is why the buttons could end up showing two icons at once.
+        */
+        .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .hero-heading { font-size: 13px; font-weight: 700; }
+        .hero-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+        .hero-meta { font-size: 12px; color: var(--text-tertiary); margin-top: 6px; }
+
+        .pipeline-btn {
+            position: relative;
+            min-width: 168px;
+            justify-content: center;
+            transition: background .2s ease, border-color .2s ease, color .2s ease, opacity .2s ease;
+        }
+        .pipeline-btn .pipeline-btn-icon { display: inline-flex; align-items: center; }
+        .pipeline-btn .pipeline-btn-icon svg { width: 16px; height: 16px; }
+
+        .pipeline-btn[data-phase="idle"] { background: var(--apple-blue); border: 1px solid var(--apple-blue); color: #fff; }
+        .pipeline-btn[data-phase="idle"]:hover:not(:disabled) { background: #0077ed; }
+        .pipeline-btn[data-phase="stop"] { background: var(--apple-red); border: 1px solid var(--apple-red); color: #fff; }
+        .pipeline-btn[data-phase="stop"]:hover:not(:disabled) { background: #ff5147; }
+        .pipeline-btn[data-phase="pause"] { background: transparent; border: 1px solid var(--apple-amber); color: var(--apple-amber); }
+        .pipeline-btn[data-phase="pause"]:hover:not(:disabled) { background: rgba(255,149,0,.1); }
+        .pipeline-btn[data-phase="resume"] { background: transparent; border: 1px solid var(--apple-blue); color: var(--apple-blue); }
+        .pipeline-btn[data-phase="resume"]:hover:not(:disabled) { background: rgba(0,113,227,.1); }
+        .pipeline-btn[data-phase="busy"] { background: var(--surface-2); border: 1px solid var(--border-light); color: var(--text-secondary); }
+        .pipeline-btn:disabled { cursor: not-allowed; opacity: .62; }
+        .pipeline-btn[data-phase="busy"]:disabled { opacity: 1; }
+
+        /* Spinner shown while a request is in flight, so a click always has
+           immediate visible feedback even though the backend takes a moment. */
+        .btn-spinner {
+            width: 14px; height: 14px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+            flex-shrink: 0;
+        }
+
+        .progress-meta {
+            display: flex; justify-content: space-between; gap: 12px;
+            font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;
+        }
+        .progress-track { width: 100%; height: 6px; background: #e5e5ea; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 0%; background: var(--apple-blue); transition: width .3s ease; }
+
+        /* ================= Content performance ================= */
+        .perf-card { overflow: hidden; }
+        .perf-header {
+            display: flex; align-items: flex-start; justify-content: space-between;
+            gap: 18px; flex-wrap: wrap; margin-bottom: 20px;
+        }
+        .perf-sub {
+            margin-top: 6px; max-width: 560px;
+            color: var(--text-secondary); font-size: 12px; line-height: 1.55;
+        }
+        .perf-header-actions { display: flex; align-items: center; gap: 10px; }
+
+        .perf-range { display: inline-flex; padding: 3px; background: var(--surface-2); border-radius: 10px; }
+        .perf-range-btn {
+            border: 0; background: transparent; cursor: pointer;
+            padding: 6px 13px; border-radius: 8px;
+            font-family: inherit; font-size: 12px; font-weight: 700;
+            color: var(--text-secondary);
+            transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+        }
+        .perf-range-btn:hover { color: var(--text-primary); }
+        .perf-range-btn.active { background: #fff; color: var(--text-primary); box-shadow: var(--shadow-sm); }
+
+        .icon-action {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 34px; height: 34px;
+            border: 1px solid var(--border-light); border-radius: 10px;
+            background: #fff; color: var(--text-secondary); cursor: pointer;
+            transition: color .18s ease, border-color .18s ease, transform .18s ease;
+        }
+        .icon-action:hover { color: var(--apple-blue); border-color: rgba(0,113,227,.35); }
+        .icon-action svg { width: 15px; height: 15px; }
+        .icon-action.spinning svg { animation: spin .8s linear infinite; }
+
+        .perf-stats {
+            display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px; margin-bottom: 22px;
+            padding: 16px 0; border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light);
+        }
+        .perf-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .perf-stat-label {
+            font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .08em; color: var(--text-tertiary);
+        }
+        .perf-stat strong { font-size: 22px; letter-spacing: -.03em; }
+        .perf-best {
+            font-size: 13px !important; font-weight: 700; line-height: 1.35;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .perf-delta { font-size: 11px; font-weight: 700; }
+        .perf-delta.up { color: var(--apple-green); }
+        .perf-delta.down { color: var(--apple-red); }
+        .perf-delta.flat { color: var(--text-tertiary); }
+
+        .perf-chart-wrap { position: relative; }
+        .perf-stage { height: 320px; }
+        .perf-empty {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 10px; text-align: center;
+            min-height: 320px; padding: 28px;
+            border: 1px dashed var(--border-light); border-radius: 14px;
+            background: var(--surface-2);
+        }
+        .perf-empty[hidden] { display: none; }
+        .perf-empty svg { width: 30px; height: 30px; color: var(--text-tertiary); }
+        .perf-empty strong { font-size: 14px; }
+        .perf-empty p { max-width: 420px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+
+        /* ================= Leaderboard ================= */
+        .leaderboard { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+        .leader-row {
+            display: grid; grid-template-columns: 26px minmax(0,1fr) auto;
+            align-items: center; gap: 12px;
+            padding: 11px 8px; border-radius: 10px;
+            text-decoration: none; color: inherit;
+            transition: background .18s ease;
+        }
+        .leader-row:hover { background: var(--surface-2); }
+        .leader-rank {
+            font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700;
+            color: var(--text-tertiary); text-align: center;
+        }
+        .leader-row:first-child .leader-rank { color: var(--apple-blue); }
+        /* display:block matters here. As inline spans, `white-space: nowrap` had
+           nothing to clip against, so a long title grew past the viewport and
+           widened the whole page instead of ellipsising. */
+        .leader-main { min-width: 0; display: block; }
+        .leader-title {
+            display: block; max-width: 100%;
+            font-size: 13px; font-weight: 600; line-height: 1.35;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .leader-meta {
+            display: block; max-width: 100%;
+            margin-top: 3px; font-size: 11px; color: var(--text-tertiary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .leader-views { text-align: right; }
+        .leader-views strong { display: block; font-size: 14px; letter-spacing: -.02em; }
+        .leader-views span { font-size: 10.5px; color: var(--text-tertiary); }
+        /* Proportional bar, so relative performance is readable at a glance. */
+        .leader-bar { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+        .leader-bar i { display: block; height: 100%; border-radius: 2px; background: var(--apple-blue); }
+        .perf-empty-inline { padding: 28px 8px; text-align: center; color: var(--text-tertiary); font-size: 13px; }
+
+        /* ================= Responsive ================= */
+        /* Large desktop stays as-is. Below that the layout steps down in stages
+           rather than collapsing everything at a single 900px breakpoint. */
+        @media (max-width: 1180px) {
+            .agent-flow { grid-template-columns: repeat(3, 1fr); }
+            .agent-board::before { display: none; }
+            .perf-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
         @media (max-width: 900px) {
-            .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+            .grid-4, .grid-3, .grid-2, .grid-1-2, .grid-2-1 { grid-template-columns: 1fr; }
             .settings-shell { grid-template-columns: 1fr; }
             .settings-nav { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .settings-nav .card-title { grid-column: 1 / -1; }
             .app-header { flex-direction: column; gap: 12px; padding: 14px 20px; }
             .workspace { padding: 20px; }
             .header-settings-button { margin-left: auto; }
+            .control-hero-card { flex-direction: column; align-items: stretch; gap: 18px; padding: 20px; }
+            .hero-actions { width: 100%; }
+            .pipeline-btn { flex: 1; min-width: 0; }
+            .perf-stage { height: 260px; }
+            .perf-empty { min-height: 260px; }
+        }
+
+        @media (max-width: 620px) {
+            .workspace { padding: 14px; }
+            .apple-card { padding: 18px 16px; border-radius: 15px; }
+            .agent-flow { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .agent-node { padding: 12px 10px; border-radius: 13px; }
+            .agent-node-detail { min-height: 0; }
+            .perf-stats { gap: 12px 10px; }
+            .perf-stat strong { font-size: 18px; }
+            .perf-header-actions { width: 100%; justify-content: space-between; }
+            .perf-stage { height: 220px; }
+            .perf-empty { min-height: 220px; padding: 22px 16px; }
+            /* Full-bleed terminal on a phone; a rounded inset card wastes the
+               little screen space there is. */
+            .terminal-overlay { padding: 0; }
+            .terminal-shell { border-radius: 0; border: 0; }
+            .terminal-body { font-size: 11.5px; padding: 12px 14px 18px; }
+            .apple-table { font-size: 12px; }
+            .leader-row { grid-template-columns: 22px minmax(0,1fr) auto; gap: 9px; padding: 10px 4px; }
+            .toast-shelf { left: 14px; right: 14px; bottom: 14px; }
+        }
+
+        @media (max-width: 420px) {
+            .agent-flow { grid-template-columns: 1fr; }
+            .hero-actions { flex-direction: column; }
+            .perf-stats { grid-template-columns: 1fr; }
+        }
+
+        /* Horizontal scroll rather than a squashed or page-widening table.
+           Unconditional: it only engages when the table genuinely overflows. */
+        .table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-scroll .apple-table { min-width: 540px; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: .001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: .001ms !important;
+            }
         }
     </style>
 </head>
@@ -835,43 +1097,59 @@
             <div class="control-hero-card">
                 <div class="hero-left">
                     <div>
-                        <div style="font-size:13px; font-weight:700;">Ready to run</div>
-                    <div id="runConfigSummary" style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Configure your workspace in Settings.</div>
-                    <div id="scheduleSummary" style="font-size:12px; color:var(--text-tertiary); margin-top:6px;">Schedule not configured</div>
+                        <div class="hero-heading" id="runHeading">Ready to run</div>
+                    <div id="runConfigSummary" class="hero-sub">Configure your workspace in Settings.</div>
+                    <div id="scheduleSummary" class="hero-meta">Schedule not configured</div>
                     </div>
                 </div>
 
-                <div style="display:flex; gap:10px;">
-                    <button id="agentRunBtn" class="btn-apple btn-apple-primary" onclick="startAgentRun()" title="Start or stop the autonomous production pipeline">
-                        <span data-icon="bot"></span> <span id="runBtnText">Autonomous Run</span>
+                <!--
+                  Two controls, each a single toggle.
+
+                  Run becomes Stop while a run is active; Pause becomes Resume while
+                  paused. There is no separate Stop button: the previous markup had
+                  one that was disabled in every code path and could never be
+                  clicked, which made stopping look broken.
+
+                  Both buttons own a `data-phase` attribute that CSS styles from, so
+                  colour and label are driven by one piece of state instead of being
+                  patched with inline styles from several places.
+                -->
+                <div class="hero-actions">
+                    <button id="agentRunBtn" class="btn-apple pipeline-btn" data-phase="idle"
+                            onclick="onRunClick()" aria-live="polite"
+                            title="Start or stop the autonomous production pipeline">
+                        <span class="pipeline-btn-icon" data-icon="bot"></span>
+                        <span class="pipeline-btn-label">Autonomous Run</span>
                     </button>
-                    <button id="pauseResumeBtn" class="btn-apple btn-apple-secondary" onclick="pauseResumePipeline()" disabled style="border:1px solid var(--apple-amber); color:var(--apple-amber);">
-                        <span data-icon="pause"></span> <span id="pauseResumeText">Pause</span>
-                    </button>
-                    <button id="stopBtn" class="btn-apple btn-apple-danger" onclick="stopPipeline()" disabled>
-                        <span data-icon="square"></span> Stop
+                    <button id="pauseResumeBtn" class="btn-apple pipeline-btn" data-phase="pause"
+                            onclick="onPauseClick()" disabled aria-live="polite">
+                        <span class="pipeline-btn-icon" data-icon="pause"></span>
+                        <span class="pipeline-btn-label">Pause</span>
                     </button>
                 </div>
             </div>
 
             <!-- Progress & Stage Tracker -->
             <div id="progressSection" style="display:none; margin-bottom: 24px;">
-                <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">
+                <div class="progress-meta">
                     <span id="stepText">Initializing...</span>
                     <span id="elapsedText">Elapsed: 00:00</span>
                 </div>
-                <div style="width:100%; height:6px; background:#e5e5ea; border-radius:3px; overflow:hidden;">
-                    <div id="progressFill" style="height:100%; width:0%; background:var(--apple-blue); transition:width 0.3s ease;"></div>
+                <div class="progress-track">
+                    <div id="progressFill" class="progress-fill"></div>
                 </div>
             </div>
 
             <div class="apple-card agent-board" style="margin-bottom:24px;">
                 <div class="agent-board-header">
                     <div><div class="agent-board-title">Agent Workspace</div><div class="agent-board-subtitle" id="agentBoardMessage">The editorial team is standing by.</div></div>
-                    <div class="agent-live">Live system</div>
+                    <div class="agent-live" id="agentLive">Live system</div>
                 </div>
                 <div class="agent-flow" id="agentFlow"></div>
-                <button class="terminal-toggle" onclick="toggleTerminalVisibility()"><span data-icon="terminal"></span><span id="terminalToggleText">Show terminal output</span></button>
+                <button class="terminal-toggle" onclick="openTerminal()">
+                    <span data-icon="terminal"></span><span>Open terminal</span>
+                </button>
             </div>
 
             <!-- At-a-Glance Stat Cards -->
@@ -909,23 +1187,39 @@
                 </div>
             </div>
 
-            <!-- Execution Logs Console Drawer -->
-            <div class="terminal-wrapper" id="terminalPanel" style="margin-bottom: 24px; display:none;">
-                <div class="terminal-header">
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <div class="terminal-dots">
-                            <div class="terminal-dot" style="background:#ff5f56"></div>
-                            <div class="terminal-dot" style="background:#ffbd2e"></div>
-                            <div class="terminal-dot" style="background:#27c93f"></div>
+            <!--
+              Execution terminal.
+
+              Moved out of the page flow into a full-screen overlay. Inline, it was
+              a 260px scroll box wedged between cards, which is the least useful
+              possible shape for reading log output. The mac-style traffic lights
+              were decorative and did nothing, so they are gone; the only control is
+              a real close button.
+
+              Lives at the end of <main> but is position:fixed, so it covers the
+              whole page regardless of scroll position.
+            -->
+            <div class="terminal-overlay" id="terminalPanel" hidden>
+                <div class="terminal-shell" role="dialog" aria-modal="true" aria-label="Execution terminal">
+                    <div class="terminal-header">
+                        <div class="terminal-title">
+                            <span data-icon="terminal"></span>
+                            <span>Execution terminal</span>
+                            <span class="terminal-stream" id="terminalStream">live</span>
                         </div>
-                        <span style="color:#a1a1a6; font-size:12px; font-weight:600;">COLONY Execution Terminal Output</span>
+                        <div class="terminal-header-actions">
+                            <button class="terminal-action" onclick="clearTerminal()" title="Clear output">
+                                Clear
+                            </button>
+                            <button class="terminal-action terminal-close" onclick="closeTerminal()"
+                                    title="Close terminal (Esc)" aria-label="Close terminal">
+                                <span data-icon="x"></span>
+                            </button>
+                        </div>
                     </div>
-                    <button class="btn-apple btn-apple-secondary btn-sm" onclick="toggleTerminalExpand()" style="color:#ffffff; background:rgba(255,255,255,0.1)">
-                        ↔ Expand / Contract
-                    </button>
-                </div>
-                <div class="terminal-body" id="liveLog">
-                    <div class="log-entry success">Console initialized. Ready for pipeline execution.</div>
+                    <div class="terminal-body" id="liveLog">
+                        <div class="log-entry success">Console initialized. Ready for pipeline execution.</div>
+                    </div>
                 </div>
             </div>
 
@@ -934,6 +1228,7 @@
                 <div class="card-header">
                     <div class="card-title">Past Pipeline Executions</div>
                 </div>
+                <div class="table-scroll">
                 <table class="apple-table">
                     <thead>
                         <tr>
@@ -948,26 +1243,86 @@
                     </thead>
                     <tbody id="runsTable"></tbody>
                 </table>
+                </div>
                 <div id="runsEmpty" style="text-align:center; padding:30px; color:var(--text-tertiary); display:none">No historical runs recorded.</div>
             </div>
 
-            <!-- Analytics Charts Grid -->
+            <!--
+              Content performance.
+
+              Replaces the previous "Pipeline Throughput" and "Video Storage Trend"
+              charts. Those plotted how much work the machine did, which tells you
+              nothing about whether the work was any good — run count and megabytes
+              of MP4 are not outcomes.
+
+              This plots what the audience actually did: cumulative views per video
+              over time, and views *gained* per week. The Analyst works from the same
+              history, which is why it no longer needs a card in the workspace.
+            -->
+            <div class="apple-card perf-card" style="margin-bottom:24px;">
+                <div class="perf-header">
+                    <div>
+                        <div class="card-title">Content Performance</div>
+                        <p class="perf-sub">Cumulative views for your best-performing videos, tracked over time. The Analyst reads this history to learn which stories earn attention.</p>
+                    </div>
+                    <div class="perf-header-actions">
+                        <div class="perf-range" id="perfRange" role="group" aria-label="Time range">
+                            <button class="perf-range-btn active" data-range="7" onclick="setPerfRange(7)">7d</button>
+                            <button class="perf-range-btn" data-range="30" onclick="setPerfRange(30)">30d</button>
+                            <button class="perf-range-btn" data-range="0" onclick="setPerfRange(0)">All</button>
+                        </div>
+                        <button class="icon-action" onclick="refreshPerformance()" title="Take a snapshot now" aria-label="Refresh performance data">
+                            <span data-icon="refresh-cw"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="perf-stats">
+                    <div class="perf-stat">
+                        <span class="perf-stat-label">Total views</span>
+                        <strong id="perfTotalViews">—</strong>
+                    </div>
+                    <div class="perf-stat">
+                        <span class="perf-stat-label">Videos tracked</span>
+                        <strong id="perfVideoCount">—</strong>
+                    </div>
+                    <div class="perf-stat">
+                        <span class="perf-stat-label">Views this week</span>
+                        <strong id="perfWeekViews">—</strong>
+                        <span class="perf-delta" id="perfWeekDelta"></span>
+                    </div>
+                    <div class="perf-stat">
+                        <span class="perf-stat-label">Best performer</span>
+                        <strong id="perfBest" class="perf-best">—</strong>
+                    </div>
+                </div>
+
+                <div class="perf-chart-wrap">
+                    <div class="chart-stage perf-stage" id="perfChartStage"><canvas id="perfChart"></canvas></div>
+                    <div class="perf-empty" id="perfEmpty" hidden>
+                        <span data-icon="line-chart"></span>
+                        <strong id="perfEmptyTitle">Collecting performance data</strong>
+                        <p id="perfEmptyBody">Once videos are published, ColonyV records their view counts every few minutes and charts how each one grows.</p>
+                    </div>
+                </div>
+            </div>
+
             <div class="grid-row grid-2">
                 <div class="apple-card chart-card">
                     <div class="chart-copy">
-                        <div class="card-title">Pipeline Throughput</div>
-                        <p>How many source content ColonyV processed in each recent run. Use this to see whether scheduled and manual executions are producing consistent volume.</p>
-                        <div class="chart-summary"><strong id="throughputSummary">0</strong><span>content processed</span></div>
+                        <div class="card-title">Weekly Momentum</div>
+                        <p>Views <em>gained</em> each week rather than the running total, so a flattening curve is visible immediately.</p>
+                        <div class="chart-summary"><strong id="weeklySummary">0</strong><span>views gained this week</span></div>
                     </div>
-                    <div class="chart-stage" id="contentChartStage"><canvas id="contentChart"></canvas></div>
+                    <div class="chart-stage" id="weeklyChartStage"><canvas id="weeklyChart"></canvas></div>
                 </div>
-                <div class="apple-card chart-card">
-                    <div class="chart-copy">
-                        <div class="card-title">Video Storage Trend</div>
-                        <p>Rendered MP4 storage created by each run. Larger values usually mean more videos or longer narration, and help track local disk growth.</p>
-                        <div class="chart-summary"><strong id="storageSummary">0 MB</strong><span>total rendered storage</span></div>
+                <div class="apple-card">
+                    <div class="card-header">
+                        <div class="card-title">Top Content</div>
+                        <span class="badge badge-gray" id="topContentCount">0 videos</span>
                     </div>
-                    <div class="chart-stage" id="sizesChartStage"><canvas id="sizesChart"></canvas></div>
+                    <div class="leaderboard" id="perfLeaderboard"></div>
+                    <div class="perf-empty-inline" id="leaderboardEmpty">No published videos yet.</div>
                 </div>
             </div>
 
@@ -1004,13 +1359,16 @@
                             <div class="settings-row"><div class="settings-label"><span>Videos per run</span><small>Number of content to process each time</small></div><input id="videosPerRun" type="number" min="1" max="20" value="1" class="apple-input" style="width:100px;"></div>
                             <div class="settings-row"><div class="settings-label"><span>Maximum narration duration</span><small>Hard target for generated videos</small></div><input id="maxDuration" type="number" min="10" max="60" value="60" class="apple-input" style="width:100px;"><span style="font-size:12px;">seconds</span></div>
                             <div class="settings-row"><div class="settings-label"><span>Auto-Run Schedule</span><small>How often the agent runs autonomously in the background</small></div>
-                                <select id="scheduleInterval" class="apple-select" style="width:160px;">
-                                    <option value="0.016666666666666666">Every 1 Minute</option>
-                                    <option value="1">Every 1 Hour</option>
-                                    <option value="3">Every 3 Hours</option>
-                                    <option value="6" selected>Every 6 Hours</option>
-                                    <option value="12">Every 12 Hours</option>
-                                    <option value="24">Every 24 Hours</option>
+                                <select id="scheduleInterval" class="apple-select" style="width:180px;">
+                                    <!-- Short intervals exist to verify the scheduler fires
+                                         without waiting an hour for proof. -->
+                                    <option value="0.0167">Every 1 minute (test)</option>
+                                    <option value="0.0833">Every 5 minutes (test)</option>
+                                    <option value="1">Every hour</option>
+                                    <option value="3">Every 3 hours</option>
+                                    <option value="6" selected>Every 6 hours</option>
+                                    <option value="12">Every 12 hours</option>
+                                    <option value="24">Every 24 hours</option>
                                 </select>
                             </div>
                         </div>
@@ -1180,30 +1538,143 @@ CONTROLS
         if (tabName === 'alerts') loadNotifications();
     }
 
-    function toggleTerminalExpand() {
-        const body = document.getElementById('liveLog');
-        body.classList.toggle('expanded');
-    }
+    /* ================= Agent workspace ================= */
+    /*
+      Only the six stages that produce a video appear here; the Analyst runs in
+      the background and surfaces through Content Performance instead.
 
-    const agentIcons = {monitor:'radar', research:'search-check', script:'pen-line', render:'clapperboard', publish:'send', analyst:'brain-circuit'};
+      'direct' was previously missing from this map, so the Art Director rendered
+      with a generic fallback icon.
+    */
+    const agentIcons = {
+        monitor: 'radar',
+        research: 'search-check',
+        script: 'pen-line',
+        direct: 'palette',
+        render: 'clapperboard',
+        publish: 'send'
+    };
+
+    // Rendering is diffed rather than replacing innerHTML wholesale. The old
+    // version rebuilt every card on each 2s poll, which restarted the CSS
+    // transitions and made the state change flicker instead of animate.
+    let agentNodeCache = {};
+
     function renderAgentFlow(activity, activeAgent, message) {
         const flow = document.getElementById('agentFlow');
         const items = Object.values(activity || {});
-        flow.innerHTML = items.map(agent => {
-            const icon = agentIcons[agent.key] || 'bot';
+
+        const signature = items.map(a => `${a.key}:${a.status}:${a.detail || ''}`).join('|');
+        if (flow.dataset.signature === signature) return;
+
+        const existingKeys = Object.keys(agentNodeCache);
+        const incomingKeys = items.map(a => a.key);
+        const sameShape = existingKeys.length === incomingKeys.length
+            && incomingKeys.every(k => agentNodeCache[k]);
+
+        if (!sameShape) {
+            agentNodeCache = {};
+            flow.innerHTML = '';
+            items.forEach(agent => {
+                const node = document.createElement('div');
+                node.className = 'agent-node';
+                node.innerHTML = `<div class="agent-node-icon"><span data-icon="${agentIcons[agent.key] || 'bot'}"></span></div>`
+                    + `<span class="agent-node-name"></span>`
+                    + `<span class="agent-node-detail"></span>`
+                    + `<span class="agent-node-status"></span>`;
+                flow.appendChild(node);
+                agentNodeCache[agent.key] = node;
+            });
+        }
+
+        items.forEach(agent => {
+            const node = agentNodeCache[agent.key];
+            if (!node) return;
             const status = agent.status || 'pending';
-            return `<div class="agent-node ${esc(status)}"><div class="agent-node-icon"><span data-icon="${icon}"></span></div><span class="agent-node-name">${esc(agent.name)}</span><span class="agent-node-detail">${esc(agent.detail || agent.description || '')}</span><span class="agent-node-status">${esc(status)}</span></div>`;
-        }).join('');
-        document.getElementById('agentBoardMessage').textContent = message || (activeAgent ? `Working with ${activeAgent}` : 'The editorial team is standing by.');
+            node.className = `agent-node ${status}`;
+            node.querySelector('.agent-node-name').textContent = agent.name || agent.key;
+            node.querySelector('.agent-node-detail').textContent = agent.detail || agent.description || '';
+            node.querySelector('.agent-node-status').textContent = status;
+        });
+
+        flow.dataset.signature = signature;
+        document.getElementById('agentBoardMessage').textContent = message
+            || (activeAgent ? `Working with ${activeAgent}` : 'The editorial team is standing by.');
         hydrateIcons();
     }
 
-    function toggleTerminalVisibility() {
-        const panel = document.getElementById('terminalPanel');
-        const visible = panel.style.display !== 'none';
-        panel.style.display = visible ? 'none' : 'block';
-        document.getElementById('terminalToggleText').textContent = visible ? 'Show terminal output' : 'Hide terminal output';
+    /*
+      Return the cards to their waiting state a few seconds after a cycle ends.
+
+      Leaving every card green implied the system was permanently "done", which is
+      wrong for something that runs on a schedule: after a cycle finishes the
+      correct state is idle, waiting for the next one. The delay exists so the
+      completed run is actually visible before it clears.
+    */
+    let cycleResetTimer = null;
+    const CYCLE_RESET_DELAY_MS = 6000;
+
+    function scheduleAgentReset() {
+        if (cycleResetTimer) return;
+        cycleResetTimer = setTimeout(() => {
+            cycleResetTimer = null;
+            // A new run may have started while we were waiting.
+            if (pipelineIsRunning) return;
+            Object.values(agentNodeCache).forEach(node => {
+                node.className = 'agent-node pending';
+                const statusEl = node.querySelector('.agent-node-status');
+                if (statusEl) statusEl.textContent = 'waiting';
+                const detailEl = node.querySelector('.agent-node-detail');
+                if (detailEl) detailEl.textContent = '';
+            });
+            const flow = document.getElementById('agentFlow');
+            if (flow) flow.dataset.signature = 'reset';
+            const msg = document.getElementById('agentBoardMessage');
+            if (msg) msg.textContent = nextRunLabel || 'Cycle complete — waiting for the next run.';
+        }, CYCLE_RESET_DELAY_MS);
     }
+
+    function cancelAgentReset() {
+        if (cycleResetTimer) { clearTimeout(cycleResetTimer); cycleResetTimer = null; }
+    }
+
+    function markAgentsPending() {
+        Object.values(agentNodeCache).forEach(node => {
+            node.className = 'agent-node pending';
+            const statusEl = node.querySelector('.agent-node-status');
+            if (statusEl) statusEl.textContent = 'pending';
+        });
+        const flow = document.getElementById('agentFlow');
+        if (flow) flow.dataset.signature = 'starting';
+    }
+
+    /* ================= Terminal overlay ================= */
+    function openTerminal() {
+        const panel = document.getElementById('terminalPanel');
+        panel.hidden = false;
+        // Prevent the page behind the overlay from scrolling.
+        document.body.style.overflow = 'hidden';
+        const body = document.getElementById('liveLog');
+        body.scrollTop = body.scrollHeight;
+    }
+
+    function closeTerminal() {
+        document.getElementById('terminalPanel').hidden = true;
+        document.body.style.overflow = '';
+    }
+
+    function clearTerminal() {
+        document.getElementById('liveLog').innerHTML =
+            '<div class="log-entry info">Output cleared.</div>';
+    }
+
+    function terminalIsOpen() {
+        return !document.getElementById('terminalPanel').hidden;
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && terminalIsOpen()) closeTerminal();
+    });
 
     // Toast Shelf
     function toast(msg, type = 'info') {
@@ -1243,6 +1714,11 @@ CONTROLS
         play: '<path d="m8 5 11 7-11 7Z"/>', pause: '<path d="M7 5v14M17 5v14"/>', square: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
         terminal: '<path d="m4 17 5-5-5-5M12 19h8"/>', 'arrow-left': '<path d="m15 18-6-6 6-6M9 12h11"/>', cpu: '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>',
         search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', rss: '<path d="M5 19h.01M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14"/>', youtube: '<path d="M21 12s0-4-1-5-2-1-3-1H7S4 6 3 7s-1 5-1 5 0 4 1 5 2 1 4 1h10c1 0 2 0 3-1s1-5 1-5Z"/><path d="m10 9 5 3-5 3Z"/>', bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>', calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
+        x: '<path d="M18 6 6 18M6 6l12 12"/>',
+        'refresh-cw': '<path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.7-3M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.7 3"/><path d="M21 3v6h-6M3 21v-6h6"/>',
+        'line-chart': '<path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-7"/>',
+        palette: '<circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.2"/><circle cx="12" cy="7.8" r="1.2"/><circle cx="15.5" cy="10" r="1.2"/><path d="M12 21a3 3 0 0 1 0-6 2 2 0 0 0 0-4"/>',
+        trophy: '<path d="M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M9 20h6M12 14v6"/>',
         radar: '<circle cx="12" cy="12" r="8"/><path d="M12 12 18 6M12 4v2M20 12h-2M12 20v-2M4 12h2"/>', 'search-check': '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4M8 10.5l2 2 3.5-4"/>', 'pen-line': '<path d="m13 21 8-8-4-4-8 8-1 5Z"/><path d="m13 21-5-1 1-5M17 3a2.8 2.8 0 0 1 4 4L9 19"/>', clapperboard: '<path d="m3 7 18-4M3 7h18v14H3zM7 3l3 4M13 2l3 5"/>', send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>', 'brain-circuit': '<path d="M12 5a3 3 0 0 0-5.8 1A3 3 0 0 0 4 11a3 3 0 0 0 1 5.8A3 3 0 0 0 11 19h2a3 3 0 0 0 5.8-2A3 3 0 0 0 20 11a3 3 0 0 0-2.2-5.8A3 3 0 0 0 12 5Z"/><path d="M9 9h.01M15 9h.01M9 15h.01M15 15h.01M12 8v8M8 12h8"/>', bot: '<rect x="5" y="7" width="14" height="13" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6"/>'
     };
 
@@ -1286,84 +1762,138 @@ CONTROLS
     }
 
     // Pipeline Controls
-    async function startAgentRun() {
-        const runBtn = document.getElementById('agentRunBtn');
-        const runText = document.getElementById('runBtnText');
-        if (runBtn.dataset.state === 'stop') {
-            await stopPipeline();
+    /* =================================================================
+       Pipeline controls
+
+       Both buttons are single toggles driven by one `setPhase` helper, so a
+       button's icon, label, colour and disabled state can only ever come from one
+       place. The previous version mutated `innerHTML` and inline styles from five
+       separate code paths, which is how it ended up rendering two icons at once.
+
+       Every click enters a `busy` phase immediately with a spinner. The backend
+       takes a moment to actually start, and without that feedback the button
+       looked unresponsive — so it was disabled with no visible explanation.
+       ================================================================= */
+
+    const PHASES = {
+        idle:   { icon: 'bot',    label: 'Autonomous Run' },
+        stop:   { icon: 'square', label: 'Stop Run' },
+        pause:  { icon: 'pause',  label: 'Pause' },
+        resume: { icon: 'play',   label: 'Resume' }
+    };
+
+    function setPhase(buttonId, phase, { busyLabel = null, disabled = false } = {}) {
+        const btn = document.getElementById(buttonId);
+        if (!btn) return;
+        const iconEl = btn.querySelector('.pipeline-btn-icon');
+        const labelEl = btn.querySelector('.pipeline-btn-label');
+
+        if (busyLabel) {
+            btn.dataset.phase = 'busy';
+            btn.disabled = true;
+            iconEl.innerHTML = '<span class="btn-spinner"></span>';
+            labelEl.textContent = busyLabel;
             return;
         }
-        runBtn.disabled = true;
-        runText.innerHTML = '<span class="spinner"></span> Starting...';
-        runBtn.dataset.state = 'loading';
-        const resp = await fetch('/api/agent/run', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        });
-        if (resp.ok) {
-            const data = await resp.json();
-            runBtn.disabled = true;
-            runBtn.dataset.state = 'stop';
-            runBtn.style.borderColor = 'var(--apple-red)';
-            runText.textContent = 'Stop';
-            document.getElementById('progressSection').style.display = 'block';
-            document.getElementById('stepText').textContent = 'Editorial Director orchestrating production...';
-            document.getElementById('liveLog').innerHTML = '';
 
-            // Immediately reset agent cards to pending state for the new run
-            document.querySelectorAll('.agent-node').forEach(node => {
-                node.className = 'agent-node pending';
-                const statusSpan = node.querySelector('.agent-node-status');
-                if (statusSpan) statusSpan.textContent = 'pending';
-            });
-
-            runStartTime = Date.now();
-            startTimer();
-            toast(`Autonomous run started (${data.mode})`, 'info');
-            setTimeout(pollStatus, 500);
-        } else {
-            const data = await resp.json();
-            runBtn.disabled = false;
-            runBtn.dataset.state = 'idle';
-            runBtn.style.borderColor = '';
-            runText.innerHTML = '<span data-icon="bot"></span> Autonomous Run';
+        const spec = PHASES[phase];
+        if (!spec) return;
+        btn.dataset.phase = phase;
+        btn.disabled = disabled;
+        // Only rewrite the icon when it actually changes, so hydrateIcons is not
+        // doing needless work on every 2s poll.
+        if (iconEl.dataset.current !== spec.icon) {
+            iconEl.innerHTML = `<span data-icon="${spec.icon}"></span>`;
+            iconEl.dataset.current = spec.icon;
             hydrateIcons();
-            toast(data.error || 'Failed to start autonomous run', 'error');
+        }
+        labelEl.textContent = spec.label;
+    }
+
+    // Guards against a second click landing while a request is in flight.
+    let runRequestInFlight = false;
+    let pauseRequestInFlight = false;
+    let pipelineIsRunning = false;
+    let nextRunLabel = '';
+
+    async function onRunClick() {
+        if (runRequestInFlight) return;
+        const btn = document.getElementById('agentRunBtn');
+        const stopping = btn.dataset.phase === 'stop';
+        runRequestInFlight = true;
+
+        try {
+            if (stopping) {
+                setPhase('agentRunBtn', 'stop', { busyLabel: 'Stopping…' });
+                stopTimer();
+                await fetch('/api/pipeline/stop', { method: 'POST' });
+                toast('Run stopping…', 'info');
+            } else {
+                setPhase('agentRunBtn', 'idle', { busyLabel: 'Starting…' });
+                setPhase('pauseResumeBtn', 'pause', { disabled: true });
+
+                const resp = await fetch('/api/agent/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await resp.json().catch(() => ({}));
+
+                if (!resp.ok) {
+                    setPhase('agentRunBtn', 'idle');
+                    toast(data.error || 'Failed to start autonomous run', 'error');
+                    return;
+                }
+
+                cancelAgentReset();
+                pipelineIsRunning = true;
+                setPhase('agentRunBtn', 'stop');
+                document.getElementById('progressSection').style.display = 'block';
+                document.getElementById('stepText').textContent = 'Editorial Director orchestrating production…';
+                document.getElementById('liveLog').innerHTML = '';
+                markAgentsPending();
+                runStartTime = Date.now();
+                startTimer();
+                toast(`Autonomous run started${data.mode ? ' (' + data.mode + ')' : ''}`, 'info');
+            }
+        } catch (err) {
+            setPhase('agentRunBtn', stopping ? 'stop' : 'idle');
+            toast('Network error — could not reach the server', 'error');
+        } finally {
+            runRequestInFlight = false;
+            setTimeout(pollStatus, 400);
         }
     }
 
-    let currentElapsed = 0;
-    let isTimerRunning = false;
-
-    async function stopPipeline() {
-        document.getElementById('stopBtn').disabled = true;
-        stopTimer();
-        await fetch('/api/pipeline/stop', { method: 'POST' });
-        toast('Run stopping...', 'info');
-        pollStatus();
-    }
-
-    async function pauseResumePipeline() {
+    async function onPauseClick() {
+        if (pauseRequestInFlight) return;
         const btn = document.getElementById('pauseResumeBtn');
-        const text = document.getElementById('pauseResumeText');
-        if (isPaused) {
-            await fetch('/api/pipeline/resume', {method:'POST'});
-            isPaused = false;
-            text.textContent = 'Pause';
-            btn.style.borderColor = 'var(--apple-amber)';
-            btn.style.color = 'var(--apple-amber)';
-            toast('Run resumed', 'info');
-        } else {
-            pauseTimer();
-            await fetch('/api/pipeline/pause', {method:'POST'});
-            isPaused = true;
-            text.textContent = 'Resume';
-            btn.style.borderColor = 'var(--apple-blue)';
-            btn.style.color = 'var(--apple-blue)';
-            toast('Run paused', 'info');
+        const resuming = btn.dataset.phase === 'resume';
+        pauseRequestInFlight = true;
+
+        try {
+            if (resuming) {
+                setPhase('pauseResumeBtn', 'resume', { busyLabel: 'Resuming…' });
+                await fetch('/api/pipeline/resume', { method: 'POST' });
+                isPaused = false;
+                resumeTimer();
+                setPhase('pauseResumeBtn', 'pause');
+                toast('Run resumed', 'info');
+            } else {
+                setPhase('pauseResumeBtn', 'pause', { busyLabel: 'Pausing…' });
+                await fetch('/api/pipeline/pause', { method: 'POST' });
+                isPaused = true;
+                pauseTimer();
+                setPhase('pauseResumeBtn', 'resume');
+                toast('Run paused', 'info');
+            }
+        } catch (err) {
+            setPhase('pauseResumeBtn', resuming ? 'resume' : 'pause');
+            toast('Network error — could not reach the server', 'error');
+        } finally {
+            pauseRequestInFlight = false;
+            setTimeout(pollStatus, 300);
         }
-        pollStatus();
     }
 
     function startTimer(initialElapsed = 0) {
@@ -1419,6 +1949,9 @@ CONTROLS
         const um = Math.floor((uptime % 3600) / 60);
         const scheduleText = s.next_run ? `Next scheduled run ${new Date(s.next_run).toLocaleString()} · Agent uptime ${uh}h ${um}m` : `Agent uptime ${uh}h ${um}m · Schedule disabled`;
         document.getElementById('scheduleSummary').textContent = scheduleText;
+        nextRunLabel = s.next_run
+            ? `Waiting for the next scheduled run at ${new Date(s.next_run).toLocaleTimeString()}.`
+            : '';
 
         if (s.logs && s.logs.length > 0) {
             const logBox = document.getElementById('liveLog');
@@ -1439,24 +1972,20 @@ CONTROLS
             dot.className = 'status-dot active';
             text.textContent = s.paused ? 'Paused' : 'Running (' + (s.current_step || '...') + ')';
 
-            const runBtn = document.getElementById('agentRunBtn');
-            const runText = document.getElementById('runBtnText');
-            runBtn.disabled = false;
-            runBtn.dataset.state = 'stop';
-            runBtn.style.borderColor = 'var(--apple-red)';
-            runText.innerHTML = '<span data-icon="square"></span> Stop';
-            hydrateIcons();
-
-            document.getElementById('pauseResumeBtn').disabled = false;
-            document.getElementById('pauseResumeText').textContent = s.paused ? 'Resume' : 'Pause';
-            document.getElementById('pauseResumeBtn').style.borderColor = s.paused ? 'var(--apple-blue)' : 'var(--apple-amber)';
-            document.getElementById('pauseResumeBtn').style.color = s.paused ? 'var(--apple-blue)' : 'var(--apple-amber)';
+            cancelAgentReset();
+            pipelineIsRunning = true;
             isPaused = !!s.paused;
 
-            document.getElementById('stopBtn').disabled = true;
+            // Never fight a request that is mid-flight; it owns the button until
+            // it resolves.
+            if (!runRequestInFlight) setPhase('agentRunBtn', 'stop');
+            if (!pauseRequestInFlight) setPhase('pauseResumeBtn', s.paused ? 'resume' : 'pause');
 
-            document.getElementById('progressFill').style.width = s.progress + '%';
-            document.getElementById('stepText').textContent = s.current_step + ' (' + s.content_done + '/' + s.content_count + ' pieces of content)';
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('progressFill').style.width = (s.progress || 0) + '%';
+            document.getElementById('stepText').textContent =
+                `${s.current_step} (${s.content_done}/${s.content_count} pieces of content)`;
+            document.getElementById('runHeading').textContent = s.paused ? 'Paused' : 'Running';
 
             if (s.elapsed !== undefined) {
                 currentElapsed = Math.floor(s.elapsed);
@@ -1471,17 +2000,12 @@ CONTROLS
                 startTimer(currentElapsed);
             }
 
-            ['monitor','research','script','render','publish'].forEach(step => {
-                const el = document.getElementById('step-' + step);
-                if (!el) return;
-                if (s.current_step && s.current_step.includes(step)) el.className = 'tracker-node active';
-                else if (isStepDone(step, s.current_step)) el.className = 'tracker-node done';
-                else el.className = 'tracker-node';
-            });
-
             previousWasRunning = true;
         } else {
             dot.className = 'status-dot';
+            pipelineIsRunning = false;
+            isPaused = false;
+
             if (s.current_step === 'complete') {
                 text.textContent = 'System Complete';
             } else if (s.current_step === 'stopped') {
@@ -1490,53 +2014,35 @@ CONTROLS
                 text.textContent = 'System Idle';
             }
 
-            const runBtn = document.getElementById('agentRunBtn');
-            const runText = document.getElementById('runBtnText');
-            runBtn.disabled = false;
-            runBtn.dataset.state = 'idle';
-            runBtn.style.borderColor = '';
-            runText.innerHTML = '<span data-icon="bot"></span> Autonomous Run';
-            hydrateIcons();
-
-            document.getElementById('pauseResumeBtn').disabled = true;
-            document.getElementById('pauseResumeText').textContent = 'Pause';
-            document.getElementById('stopBtn').disabled = true;
+            if (!runRequestInFlight) setPhase('agentRunBtn', 'idle');
+            if (!pauseRequestInFlight) setPhase('pauseResumeBtn', 'pause', { disabled: true });
 
             stopTimer();
+            document.getElementById('runHeading').textContent = 'Ready to run';
+
             if (s.current_step === 'complete') {
                 if (!statusWasComplete) {
-                    toast('Pipeline completed!', 'info');
+                    toast('Pipeline completed', 'info');
                     loadRuns();
                     loadAnalytics();
+                    // A finished run has new performance data to fold in.
+                    loadPerformance();
                     statusWasComplete = true;
                 }
             } else {
                 statusWasComplete = false;
             }
 
-            // Reset agent cards when run ends (transition from running to idle/complete)
+            // A cycle just ended: hold the completed state briefly so it can be
+            // seen, then return the workspace to waiting.
             if (previousWasRunning) {
-                document.querySelectorAll('.agent-node').forEach(node => {
-                    node.className = 'agent-node pending';
-                    const statusSpan = node.querySelector('.agent-node-status');
-                    if (statusSpan) statusSpan.textContent = 'pending';
-                });
-                // Reset tracker nodes too
-                ['monitor','research','script','render','publish'].forEach(step => {
-                    const el = document.getElementById('step-' + step);
-                    if (el) el.className = 'tracker-node';
-                });
                 previousWasRunning = false;
+                scheduleAgentReset();
             }
         }
         setTimeout(pollStatus, 2000);
     }
 
-    function isStepDone(step, current) {
-        const order = ['monitor','research','script','render','publish'];
-        const ci = current ? order.findIndex(s => current.includes(s)) : -1;
-        return order.indexOf(step) < ci;
-    }
 
     // Load Runs
     async function loadRuns() {
@@ -1587,42 +2093,342 @@ CONTROLS
 
     // Analytics
     async function loadAnalytics() {
+        // Headline counters only. The charts now plot audience outcomes, which
+        // come from /api/performance rather than from run bookkeeping.
         const statIds = ['statRuns', 'statStories', 'statRendered', 'statStorageValue'];
         try {
             const data = await fetchJson('/api/analytics');
             document.getElementById('statRuns').textContent = data.total_runs || 0;
             document.getElementById('statStories').textContent = data.total_content || 0;
             document.getElementById('statRendered').textContent = data.total_rendered || 0;
-            document.getElementById('throughputSummary').textContent = Number(data.total_content || 0).toLocaleString();
-            document.getElementById('storageSummary').textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
-
-            if (charts.content) charts.content.destroy();
-            if (charts.sizes) charts.sizes.destroy();
-
-        charts.content = new Chart(document.getElementById('contentChart'), {
-            type: 'bar',
-            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Stories processed', data: data.runs.map(r=>r.content), backgroundColor: 'rgba(0, 113, 227, .82)', hoverBackgroundColor: '#0077ed', borderRadius: 8, borderSkipped: false, maxBarThickness: 28 }] },
-            options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${ctx.parsed.y} content processed` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { precision: 0, color: '#86868b', font: { size: 10 } } } } }
-        });
-        charts.sizes = new Chart(document.getElementById('sizesChart'), {
-            type: 'line',
-            data: { labels: data.runs.map(r=>r.date), datasets: [{ label: 'Rendered storage', data: data.runs.map(r=>r.size_mb), borderColor: '#5856d6', backgroundColor: 'rgba(88, 86, 214, .12)', fill: true, tension: .38, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2, pointBorderColor: '#5856d6' }] },
-            options: { responsive: true, maintainAspectRatio: false, animation: { duration: 1100, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 10, callbacks: { label: ctx => `${Number(ctx.parsed.y || 0).toFixed(1)} MB rendered` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#86868b', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { color: '#86868b', font: { size: 10 }, callback: value => `${value} MB` } } } }
-        });
-            requestAnimationFrame(() => {
-            document.getElementById('contentChartStage').classList.remove('reveal');
-            document.getElementById('sizesChartStage').classList.remove('reveal');
-            void document.getElementById('contentChartStage').offsetWidth;
-            void document.getElementById('sizesChartStage').offsetWidth;
-            document.getElementById('contentChartStage').classList.add('reveal');
-            document.getElementById('sizesChartStage').classList.add('reveal');
-            });
+            document.getElementById('statStorageValue').textContent =
+                `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
         } catch (error) {
-            document.getElementById('throughputSummary').textContent = 'Unavailable';
-            document.getElementById('storageSummary').textContent = 'Unavailable';
+            statIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = '—';
+            });
         } finally {
             statIds.forEach(id => document.getElementById(id)?.classList.remove('loading'));
         }
+    }
+
+    /* =================================================================
+       Content performance
+
+       Plots cumulative views per video over time, plus views gained per week.
+       The previous charts showed run counts and megabytes of MP4 — machine
+       throughput, which says nothing about whether the content worked.
+
+       Because the YouTube API only reports current totals, the backend snapshots
+       counts periodically and the series is assembled from that history. With
+       fewer than two snapshots there is nothing meaningful to draw, so an
+       explicit "collecting" state is shown rather than a misleading flat line.
+       ================================================================= */
+
+    let perfRangeDays = 7;
+    let perfCache = null;
+
+    // Distinct but harmonious; enough contrast to follow five lines at once.
+    const PERF_COLORS = ['#0071e3', '#34c759', '#af52de', '#ff9500', '#5856d6'];
+
+    function setPerfRange(days) {
+        perfRangeDays = days;
+        document.querySelectorAll('.perf-range-btn').forEach(btn => {
+            btn.classList.toggle('active', Number(btn.dataset.range) === days);
+        });
+        if (perfCache) drawPerformance(perfCache);
+    }
+
+    async function refreshPerformance() {
+        const btn = document.querySelector('.icon-action');
+        btn?.classList.add('spinning');
+        try {
+            await fetch('/api/performance/snapshot', { method: 'POST' });
+            await loadPerformance();
+            toast('Performance data refreshed', 'info');
+        } catch (e) {
+            toast('Could not refresh performance data', 'error');
+        } finally {
+            btn?.classList.remove('spinning');
+        }
+    }
+
+    async function loadPerformance() {
+        try {
+            perfCache = await fetchJson('/api/performance', {}, 8000);
+            drawPerformance(perfCache);
+        } catch (error) {
+            showPerfEmpty('Performance data unavailable',
+                'Could not reach the analytics service. It will retry automatically.');
+        }
+    }
+
+    function showPerfEmpty(title, body) {
+        document.getElementById('perfEmpty').hidden = false;
+        document.getElementById('perfChartStage').style.display = 'none';
+        document.getElementById('perfEmptyTitle').textContent = title;
+        document.getElementById('perfEmptyBody').textContent = body;
+        hydrateIcons();
+    }
+
+    function hidePerfEmpty() {
+        document.getElementById('perfEmpty').hidden = true;
+        document.getElementById('perfChartStage').style.display = '';
+    }
+
+    const fmt = (n) => Number(n || 0).toLocaleString();
+
+    function drawPerformance(data) {
+        renderLeaderboard(data.top || []);
+        renderWeekly(data.weekly || []);
+
+        const totals = data.totals || {};
+        document.getElementById('perfTotalViews').textContent = fmt(totals.views);
+        document.getElementById('perfVideoCount').textContent = fmt(totals.videos);
+
+        const best = (data.top || [])[0];
+        document.getElementById('perfBest').textContent = best ? best.title : '—';
+
+        // Week-over-week movement, which is the number that answers "is this
+        // getting better".
+        const weekly = data.weekly || [];
+        const thisWeek = weekly.length ? weekly[weekly.length - 1].views_gained : 0;
+        const lastWeek = weekly.length > 1 ? weekly[weekly.length - 2].views_gained : 0;
+        document.getElementById('perfWeekViews').textContent = fmt(thisWeek);
+
+        const deltaEl = document.getElementById('perfWeekDelta');
+        if (weekly.length > 1 && lastWeek > 0) {
+            const pct = Math.round(((thisWeek - lastWeek) / lastWeek) * 100);
+            deltaEl.textContent = `${pct > 0 ? '+' : ''}${pct}% vs last week`;
+            deltaEl.className = 'perf-delta ' + (pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat');
+        } else {
+            deltaEl.textContent = '';
+            deltaEl.className = 'perf-delta';
+        }
+
+        if (!data.ready) {
+            showPerfEmpty(
+                data.reason === 'collecting' ? 'Building the first curve' : 'No published content yet',
+                data.reason === 'collecting'
+                    ? 'ColonyV has recorded one measurement so far. A second one arrives within a few minutes, and the chart appears then.'
+                    : 'Publish a video and ColonyV will start tracking how its views grow over time.'
+            );
+            if (charts.perf) { charts.perf.destroy(); charts.perf = null; }
+            return;
+        }
+        hidePerfEmpty();
+
+        // Trim to the selected window. 0 means everything.
+        const cutoff = perfRangeDays > 0
+            ? Date.now() - perfRangeDays * 86400000
+            : 0;
+
+        const datasets = (data.series || []).map((line, i) => {
+            const color = PERF_COLORS[i % PERF_COLORS.length];
+            const points = line.points
+                .filter(pt => !cutoff || new Date(pt.at).getTime() >= cutoff)
+                .map(pt => ({ x: new Date(pt.at).getTime(), y: pt.views }));
+            // A line through one or two points is invisible with hidden markers,
+            // which made a freshly-tracked video look like no data at all. Show
+            // the markers until there are enough samples for the line to read on
+            // its own.
+            const sparse = points.length <= 3;
+            return {
+                label: line.title.length > 42 ? line.title.slice(0, 41) + '…' : line.title,
+                data: points,
+                borderColor: color,
+                backgroundColor: color + '20',
+                borderWidth: 2.5,
+                fill: false,
+                tension: .35,
+                pointRadius: sparse ? 4 : 0,
+                pointBackgroundColor: color,
+                pointBorderColor: '#fff',
+                pointBorderWidth: sparse ? 2 : 0,
+                pointHoverRadius: 5,
+                pointHoverBackgroundColor: '#fff',
+                pointHoverBorderColor: color,
+                pointHoverBorderWidth: 2.5
+            };
+        }).filter(d => d.data.length > 0);
+
+        if (!datasets.length) {
+            // Prefer showing what exists over an empty state the user cannot act on.
+            const all = (data.series || []).map((line, i) => {
+                const color = PERF_COLORS[i % PERF_COLORS.length];
+                return {
+                    label: line.title.length > 42 ? line.title.slice(0, 41) + '…' : line.title,
+                    data: line.points.map(pt => ({ x: new Date(pt.at).getTime(), y: pt.views })),
+                    borderColor: color, backgroundColor: color + '20', borderWidth: 2.5,
+                    fill: false, tension: .35, pointRadius: 4,
+                    pointBackgroundColor: color, pointBorderColor: '#fff', pointBorderWidth: 2
+                };
+            }).filter(d => d.data.length > 0);
+            if (!all.length) {
+                showPerfEmpty('No data in this range',
+                    'Nothing was recorded in the selected window. Try a wider range.');
+                return;
+            }
+            datasets.push(...all);
+        }
+
+        if (charts.perf) charts.perf.destroy();
+        charts.perf = new Chart(document.getElementById('perfChart'), {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 800, easing: 'easeOutQuart' },
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'bottom',
+                        labels: {
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            boxWidth: 7,
+                            boxHeight: 7,
+                            padding: 16,
+                            color: '#6e6e73',
+                            font: { size: 11, weight: '600' }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(28,28,30,.94)',
+                        padding: 12,
+                        cornerRadius: 10,
+                        titleFont: { size: 11, weight: '700' },
+                        bodyFont: { size: 12 },
+                        bodySpacing: 5,
+                        usePointStyle: true,
+                        callbacks: {
+                            title: items => items.length
+                                ? new Date(items[0].parsed.x).toLocaleString(undefined,
+                                    { month: 'short', day: 'numeric', hour: 'numeric' })
+                                : '',
+                            label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)} views`
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: perfRangeDays === 7 ? 'day' : perfRangeDays === 30 ? 'week' : 'month' },
+                        grid: { display: false },
+                        border: { display: false },
+                        ticks: { color: '#86868b', font: { size: 10 }, maxRotation: 0, autoSkipPadding: 18 }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,0,0,.05)' },
+                        border: { display: false },
+                        ticks: {
+                            color: '#86868b',
+                            font: { size: 10 },
+                            precision: 0,
+                            // Compact axis labels so 12,400 reads as 12.4k.
+                            callback: v => v >= 1000 ? (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : v
+                        }
+                    }
+                }
+            }
+        });
+
+        const stage = document.getElementById('perfChartStage');
+        requestAnimationFrame(() => {
+            stage.classList.remove('reveal');
+            void stage.offsetWidth;
+            stage.classList.add('reveal');
+        });
+    }
+
+    function renderWeekly(weekly) {
+        const summary = document.getElementById('weeklySummary');
+        summary.textContent = weekly.length ? fmt(weekly[weekly.length - 1].views_gained) : '0';
+
+        if (charts.weekly) charts.weekly.destroy();
+        if (!weekly.length) return;
+
+        charts.weekly = new Chart(document.getElementById('weeklyChart'), {
+            type: 'bar',
+            data: {
+                labels: weekly.map(w => w.week.replace(/^\d{4}-/, '')),
+                datasets: [{
+                    data: weekly.map(w => w.views_gained),
+                    backgroundColor: weekly.map((_, i) =>
+                        i === weekly.length - 1 ? '#0071e3' : 'rgba(0,113,227,.28)'),
+                    hoverBackgroundColor: '#0077ed',
+                    borderRadius: 7,
+                    borderSkipped: false,
+                    maxBarThickness: 26
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 750, easing: 'easeOutQuart' },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(28,28,30,.94)',
+                        padding: 11,
+                        cornerRadius: 10,
+                        displayColors: false,
+                        callbacks: { label: ctx => `${fmt(ctx.parsed.y)} views gained` }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, border: { display: false },
+                         ticks: { color: '#86868b', font: { size: 10 } } },
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.05)' }, border: { display: false },
+                         ticks: { color: '#86868b', font: { size: 10 }, precision: 0,
+                                  callback: v => v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v } }
+                }
+            }
+        });
+
+        const stage = document.getElementById('weeklyChartStage');
+        requestAnimationFrame(() => {
+            stage.classList.remove('reveal');
+            void stage.offsetWidth;
+            stage.classList.add('reveal');
+        });
+    }
+
+    function renderLeaderboard(top) {
+        const box = document.getElementById('perfLeaderboard');
+        const empty = document.getElementById('leaderboardEmpty');
+        document.getElementById('topContentCount').textContent =
+            `${top.length} video${top.length === 1 ? '' : 's'}`;
+
+        if (!top.length) {
+            box.innerHTML = '';
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        // Bars are relative to the best performer, which is what makes the
+        // ranking readable without reading any numbers.
+        const max = Math.max(...top.map(v => v.views || 0), 1);
+        box.innerHTML = top.slice(0, 8).map((v, i) => `
+            <a class="leader-row" href="https://youtube.com/watch?v=${esc(v.id)}"
+               target="_blank" rel="noopener noreferrer" title="${esc(v.title)}">
+                <span class="leader-rank">${i + 1}</span>
+                <span class="leader-main">
+                    <span class="leader-title">${esc(v.title)}</span>
+                    <span class="leader-meta">${esc(v.published || '')} · ${fmt(v.likes)} likes</span>
+                </span>
+                <span class="leader-views">
+                    <strong>${fmt(v.views)}</strong>
+                    <span>views</span>
+                </span>
+                <span class="leader-bar"><i style="width:${Math.max(2, ((v.views || 0) / max) * 100)}%"></i></span>
+            </a>
+        `).join('');
     }
 
     // YouTube
@@ -1661,9 +2467,17 @@ CONTROLS
             const msg = esc(data.message || data.error || 'Connect YouTube OAuth credentials in Setup & Settings to view live subscriber metrics & video view performance.');
             content.innerHTML = `<div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">${msg}</div>`;
             document.getElementById('ytAccountDetails').style.display = 'none';
-            document.getElementById('ytAuthBtn').disabled = false;
-            document.getElementById('ytAuthBtn').style.display = 'inline-flex';
+            const authBtn = document.getElementById('ytAuthBtn');
+            // Only offer Connect once credentials exist; enabling it beforehand
+            // sent users into an OAuth flow that could only fail.
+            authBtn.disabled = !data.has_credentials;
+            authBtn.style.display = 'inline-flex';
+            authBtn.classList.toggle('btn-apple-primary', !!data.has_credentials);
             document.getElementById('ytDisconnectBtn').style.display = 'none';
+            // This line previously stayed on "Checking connection..." forever.
+            document.getElementById('ytStatus').textContent = data.has_credentials
+                ? 'Credentials saved. Click Connect with Google to authorise the channel.'
+                : 'Not connected. Paste your client_secret.json above to begin.';
             return;
         }
 
@@ -1686,6 +2500,7 @@ CONTROLS
                 <div><small style="color:var(--text-secondary)">30-Day Watch Time</small><div style="font-size:22px; font-weight:800">${an.watch_time_minutes_30d !== undefined ? an.watch_time_minutes_30d + 'm' : 'N/A'}</div></div>
                 <div><small style="color:var(--text-secondary)">Videos Uploaded</small><div style="font-size:22px; font-weight:800">${ch.total_videos}</div></div>
             </div>
+            <div class="table-scroll">
             <table class="apple-table">
                 <thead><tr><th>Video Title</th><th>Published</th><th>Views</th><th>Likes</th></tr></thead>
                 <tbody>
@@ -1699,20 +2514,50 @@ CONTROLS
                     `).join('') : '<tr><td colspan="4" style="text-align:center; color:var(--text-tertiary)">No videos published yet</td></tr>'}
                 </tbody>
             </table>
+            </div>
         `;
     }
 
     async function loadDashboardData() {
-        const results = await Promise.allSettled([loadRuns(), loadAnalytics(), loadYouTube(), loadCosts()]);
+        // loadCosts used to re-fetch /api/analytics purely to fill one counter
+        // that loadAnalytics already sets; the duplicate request is gone.
+        const results = await Promise.allSettled([
+            loadRuns(), loadAnalytics(), loadPerformance(), loadYouTube()
+        ]);
         results.filter(result => result.status === 'rejected').forEach(result => console.error('Dashboard data load failed:', result.reason));
     }
 
     async function uploadYouTubeSecret() {
-        const input = document.getElementById('ytSecretInput').value.trim();
-        if (!input) return;
-        const resp = await fetch('/api/youtube/upload-secret', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ client_secret: input }) });
-        const data = await resp.json();
-        if (data.status === 'ok') { toast('Credentials saved', 'info'); document.getElementById('ytAuthBtn').disabled = false; }
+        const field = document.getElementById('ytSecretInput');
+        const input = field.value.trim();
+        if (!input) {
+            toast('Paste the contents of client_secret.json first', 'error');
+            field.focus();
+            return;
+        }
+        try {
+            const resp = await fetch('/api/youtube/upload-secret', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ client_secret: input })
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || data.error) {
+                // The old version swallowed failures entirely, so a bad paste
+                // looked identical to success until OAuth later failed.
+                toast(data.error || 'Could not save credentials', 'error');
+                return;
+            }
+            toast('Credentials saved — now click Connect with Google', 'success');
+            field.value = '';
+            const authBtn = document.getElementById('ytAuthBtn');
+            authBtn.disabled = false;
+            authBtn.classList.add('btn-apple-primary');
+            document.getElementById('ytStatus').textContent =
+                'Credentials saved. Click Connect with Google to authorise the channel.';
+        } catch (e) {
+            toast('Network error while saving credentials', 'error');
+        }
     }
 
     async function startYouTubeAuth() {
@@ -1751,24 +2596,12 @@ CONTROLS
     }
 
     async function disconnectYouTube() {
-        if (!confirm('Disconnect YouTube?')) return;
+        if (!confirm('Disconnect this YouTube channel? Publishing will stop until you reconnect.')) return;
         await fetch('/api/youtube/disconnect', { method: 'DELETE' });
         loadYouTube();
     }
 
     // Costs
-    async function loadCosts() {
-        const el = document.getElementById('statStorageValue');
-        try {
-            const data = await fetchJson('/api/analytics');
-            el.textContent = `${Number(data.total_size_mb || 0).toFixed(1)} MB`;
-        } catch (error) {
-            el.textContent = '0.0 MB';
-        } finally {
-            el.classList.remove('loading');
-        }
-    }
-
     // Feeds
     let feedData = [];
 
@@ -1894,7 +2727,7 @@ CONTROLS
         
         document.getElementById('videosPerRun').value = p.videos_per_run || 1;
         document.getElementById('maxDuration').value = p.max_duration_seconds || 60;
-        document.getElementById('scheduleInterval').value = sc.interval_hours || 6;
+        selectClosestOption('scheduleInterval', sc.interval_hours, 6);
         document.getElementById('modelId').value = m.model_id || 'gemini/gemini-3.5-flash';
         document.getElementById('modelKeyStatus').textContent = 'Since keys are not used, auth is Vertex ADC';
         document.getElementById('brandVoice').value = c.brand_voice || 'engaging_news';
@@ -1903,6 +2736,26 @@ CONTROLS
         customTopics = c.custom_topics || ["AI & Machine Learning", "Cryptocurrency", "Big Tech & Startups", "Hardware & GPUs"];
         activeTopic = c.active_topic || customTopics[0];
         renderTopicCards();
+    }
+
+    /*
+      Pick the option nearest to a numeric value.
+
+      Exact string matching broke for the sub-hour intervals: 1/60 cannot be
+      represented exactly, so a saved 0.0167 could come back as
+      0.016700000000000003 and the <select> would silently show nothing.
+    */
+    function selectClosestOption(selectId, value, fallback) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        const target = Number(value ?? fallback);
+        if (!Number.isFinite(target)) { select.value = String(fallback); return; }
+        let best = null, bestGap = Infinity;
+        for (const opt of select.options) {
+            const gap = Math.abs(Number(opt.value) - target);
+            if (gap < bestGap) { bestGap = gap; best = opt.value; }
+        }
+        select.value = best !== null ? best : String(fallback);
     }
 
     async function saveSettings() {

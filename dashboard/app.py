@@ -178,8 +178,19 @@ pipeline_state = {
     "active_agent": None,
     "agent_message": "Waiting for a run",
     "agent_activity": {},
+    # Set when a cycle finishes. The dashboard uses it to hold the completed
+    # (green) state briefly, then return the cards to their waiting state.
+    "last_completed_at": None,
 }
 
+# The six stages that actually produce a video. These are what the Agent
+# Workspace shows.
+#
+# The Analyst is deliberately absent. It is not a production stage — it observes
+# published videos after the fact and feeds learned signals back into Discovery
+# and Scriptwriter. Showing it as a seventh card implied the run was still working
+# when it had already finished, so it now runs in the background and surfaces
+# through the content performance analytics instead.
 AGENT_DEFINITIONS = [
     ("monitor", "Discovery Agent", "Find and rank the most valuable stories"),
     ("research", "Research Agent", "Gather evidence and test claims"),
@@ -187,8 +198,10 @@ AGENT_DEFINITIONS = [
     ("direct", "Art Director", "Author the palette, shot list, and illustration briefs"),
     ("render", "Visual Producer", "Illustrate, compose, and render the motion graphics"),
     ("publish", "Publisher Agent", "Deliver the finished video to YouTube"),
-    ("analyst", "Analyst Agent", "Learn signals from the completed run"),
 ]
+
+# Stages that run but are not shown as workspace cards.
+BACKGROUND_STAGES = {"analyst"}
 
 
 def reset_agent_activity() -> None:
@@ -209,7 +222,9 @@ def reset_agent_activity() -> None:
 
 
 def set_agent_activity(key: str, status: str, detail: str) -> None:
-    if key not in pipeline_state["agent_activity"]:
+    # Background stages (the Analyst) intentionally have no workspace card, so
+    # their updates are dropped rather than creating a phantom agent.
+    if key in BACKGROUND_STAGES or key not in pipeline_state["agent_activity"]:
         return
     now = datetime.now().isoformat()
     activity = pipeline_state["agent_activity"][key]
@@ -317,6 +332,7 @@ async def api_status():
         "elapsed": max(0.0, elapsed),
         "uptime": time.time() - APP_STARTED_AT,
         "next_run": scheduler_config.get("next_run") if "scheduler_config" in globals() else None,
+        "last_completed_at": pipeline_state.get("last_completed_at"),
         "active_agent": pipeline_state["active_agent"],
         "agent_message": pipeline_state["agent_message"],
         "agent_activity": pipeline_state["agent_activity"],
@@ -513,7 +529,12 @@ async def handle_stage_message(run_id: str, stage: str, story_index: int, attemp
         pipeline_state["current_step"] = "complete"
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
+        pipeline_state["last_completed_at"] = datetime.now().isoformat()
         log(f"[async] run {run_id} completed ({result.get('decision')})")
+        try:
+            await asyncio.to_thread(snapshot_performance, True)
+        except Exception as exc:
+            log(f"[performance] post-run snapshot failed: {exc}")
     persist_pipeline_state(force=True)
 
 
@@ -836,6 +857,196 @@ async def api_analytics():
     }
 
 
+# ---------------------------------------------------------------------------
+# Content performance history
+#
+# The YouTube API only reports a video's *current* cumulative view count, so
+# "views over time" cannot be queried — it has to be accumulated. A background
+# snapshot appends the current counts periodically, and the series is derived by
+# differencing consecutive snapshots.
+#
+# This is what the Analyst works from. The Analyst no longer appears as a card in
+# the Agent Workspace, because it is not a stage in producing a video; it observes
+# what happened after publication and feeds the result back into Discovery and
+# Scriptwriter prompts.
+# ---------------------------------------------------------------------------
+
+PERFORMANCE_LOG = OUTPUT_DIR / "performance_history.json"
+# One snapshot per hour is plenty of resolution for a view-count curve, and keeps
+# the file small enough to read synchronously on request.
+SNAPSHOT_MIN_INTERVAL_SECONDS = 3300
+MAX_SNAPSHOTS = 1500
+
+
+def _load_performance_history() -> list[dict]:
+    if not PERFORMANCE_LOG.exists():
+        return []
+    try:
+        with open(PERFORMANCE_LOG) as f:
+            data = json.load(f)
+        snapshots = data.get("snapshots", []) if isinstance(data, dict) else data
+        return snapshots if isinstance(snapshots, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _save_performance_history(snapshots: list[dict]) -> None:
+    try:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = PERFORMANCE_LOG.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump({"snapshots": snapshots[-MAX_SNAPSHOTS:]}, f, indent=2)
+        tmp.replace(PERFORMANCE_LOG)
+    except OSError as exc:
+        log(f"[performance] could not persist history: {exc}")
+
+
+def snapshot_performance(force: bool = False) -> dict:
+    """Record the current view counts for every published video.
+
+    Rate-limited so a burst of dashboard traffic cannot spam the YouTube API or
+    fill the history with near-identical points. Never raises: a failed snapshot
+    must not affect a run.
+    """
+    snapshots = _load_performance_history()
+    now = datetime.now()
+
+    if snapshots and not force:
+        try:
+            last = datetime.fromisoformat(snapshots[-1]["at"])
+            if (now - last).total_seconds() < SNAPSHOT_MIN_INTERVAL_SECONDS:
+                return {"recorded": False, "reason": "too soon", "snapshots": len(snapshots)}
+        except (ValueError, KeyError):
+            pass
+
+    try:
+        data = _youtube_data()
+    except Exception as exc:
+        log(f"[performance] snapshot skipped: {exc}")
+        return {"recorded": False, "reason": str(exc), "snapshots": len(snapshots)}
+
+    if not data.get("connected"):
+        return {
+            "recorded": False,
+            "reason": "YouTube not connected",
+            "snapshots": len(snapshots),
+        }
+
+    videos = [
+        {
+            "id": v.get("id", ""),
+            "title": v.get("title", "Untitled"),
+            "published": v.get("published", ""),
+            "thumbnail": v.get("thumbnail", ""),
+            "views": int(v.get("views", 0) or 0),
+            "likes": int(v.get("likes", 0) or 0),
+            "comments": int(v.get("comments", 0) or 0),
+        }
+        for v in data.get("videos", [])
+        if v.get("id")
+    ]
+    if not videos:
+        return {"recorded": False, "reason": "no videos", "snapshots": len(snapshots)}
+
+    snapshots.append({
+        "at": now.isoformat(timespec="seconds"),
+        "subscribers": int(data.get("channel", {}).get("subscribers", 0) or 0),
+        "videos": videos,
+    })
+    _save_performance_history(snapshots)
+    log(f"[performance] snapshot recorded for {len(videos)} video(s)")
+    return {"recorded": True, "videos": len(videos), "snapshots": len(snapshots)}
+
+
+def _performance_payload() -> dict:
+    """Shape the history into everything the analytics chart needs."""
+    snapshots = _load_performance_history()
+    if not snapshots:
+        return {
+            "ready": False,
+            "reason": "no_data",
+            "snapshots": 0,
+            "series": [],
+            "top": [],
+            "weekly": [],
+            "totals": {"views": 0, "likes": 0, "videos": 0},
+        }
+
+    latest = snapshots[-1]
+    latest_by_id = {v["id"]: v for v in latest.get("videos", [])}
+
+    # Leaderboard: what actually performed.
+    top = sorted(latest_by_id.values(), key=lambda v: v.get("views", 0), reverse=True)
+
+    # Views over time, for the strongest few videos. More than five lines on one
+    # chart stops being readable.
+    tracked = [v["id"] for v in top[:5]]
+    series = []
+    for vid in tracked:
+        points = []
+        for snap in snapshots:
+            for v in snap.get("videos", []):
+                if v.get("id") == vid:
+                    points.append({"at": snap["at"], "views": int(v.get("views", 0) or 0)})
+                    break
+        if points:
+            series.append({
+                "id": vid,
+                "title": latest_by_id[vid].get("title", "Untitled"),
+                "points": points,
+            })
+
+    # Views *gained* per ISO week, which is what "is my content improving"
+    # actually asks. Cumulative totals always rise and so answer nothing.
+    weekly: dict[str, int] = {}
+    previous_totals: dict[str, int] = {}
+    for snap in snapshots:
+        try:
+            week = datetime.fromisoformat(snap["at"]).strftime("%G-W%V")
+        except (ValueError, KeyError):
+            continue
+        for v in snap.get("videos", []):
+            vid = v.get("id")
+            if not vid:
+                continue
+            current = int(v.get("views", 0) or 0)
+            gained = max(0, current - previous_totals.get(vid, current))
+            previous_totals[vid] = current
+            weekly[week] = weekly.get(week, 0) + gained
+
+    weekly_series = [{"week": w, "views_gained": n} for w, n in sorted(weekly.items())]
+
+    return {
+        # A single snapshot draws a flat line, which reads as broken. The UI shows
+        # a "collecting" state until there is something to plot.
+        "ready": len(snapshots) >= 2,
+        "reason": "collecting" if len(snapshots) < 2 else "",
+        "snapshots": len(snapshots),
+        "first_snapshot": snapshots[0].get("at", ""),
+        "last_snapshot": latest.get("at", ""),
+        "subscribers": latest.get("subscribers", 0),
+        "series": series,
+        "top": top[:10],
+        "weekly": weekly_series[-12:],
+        "totals": {
+            "views": sum(v.get("views", 0) for v in latest_by_id.values()),
+            "likes": sum(v.get("likes", 0) for v in latest_by_id.values()),
+            "videos": len(latest_by_id),
+        },
+    }
+
+
+@app.get("/api/performance")
+async def api_performance():
+    return _performance_payload()
+
+
+@app.post("/api/performance/snapshot")
+async def api_performance_snapshot():
+    """Force a snapshot. Used by the dashboard's refresh control."""
+    return await asyncio.to_thread(snapshot_performance, True)
+
+
 YOUTUBE_SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
@@ -845,10 +1056,16 @@ YOUTUBE_SCOPES = [
 
 def _youtube_data():
     token_path = AGENTS_DIR / "publisher" / "youtube_token.json"
+    has_credentials = (AGENTS_DIR / "publisher" / "client_secret.json").exists()
     if not token_path.exists():
         return {
             "connected": False,
-            "message": "YouTube not authenticated. Upload client_secret.json and click Connect with Google.",
+            "has_credentials": has_credentials,
+            "message": (
+                "Credentials saved. Click Connect with Google to authorise the channel."
+                if has_credentials
+                else "Paste your client_secret.json below, then connect with Google."
+            ),
         }
 
     try:
@@ -967,11 +1184,35 @@ async def api_youtube_upload_secret(request: Request):
     secret_path = AGENTS_DIR / "publisher" / "client_secret.json"
     try:
         parsed = json.loads(secret_data) if isinstance(secret_data, str) else secret_data
+    except json.JSONDecodeError:
+        return JSONResponse(
+            {"error": "That is not valid JSON. Paste the whole contents of client_secret.json."},
+            400,
+        )
+
+    # Validate the shape before saving. Previously any JSON was accepted, so a
+    # wrong-but-parseable paste only failed later, during the OAuth redirect,
+    # where the error was much harder to understand.
+    if not isinstance(parsed, dict) or not ({"installed", "web"} & set(parsed)):
+        return JSONResponse(
+            {"error": "This does not look like an OAuth client file. It should contain an "
+                      "\"installed\" or \"web\" section."},
+            400,
+        )
+    section = parsed.get("installed") or parsed.get("web") or {}
+    missing = [k for k in ("client_id", "client_secret") if not section.get(k)]
+    if missing:
+        return JSONResponse(
+            {"error": f"OAuth client file is missing: {', '.join(missing)}."}, 400
+        )
+
+    try:
         with open(secret_path, "w") as f:
             json.dump(parsed, f, indent=2)
-        return {"status": "ok", "message": "client_secret.json saved"}
-    except json.JSONDecodeError:
-        return JSONResponse({"error": "Invalid JSON"}, 400)
+    except OSError as exc:
+        return JSONResponse({"error": f"Could not save credentials: {exc}"}, 500)
+
+    return {"status": "ok", "message": "Credentials saved", "has_credentials": True}
 
 
 @app.post("/api/youtube/auth")
@@ -1533,6 +1774,13 @@ async def run_pipeline(stories: int, skip_publish: bool):
     finally:
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
+        pipeline_state["last_completed_at"] = datetime.now().isoformat()
+        # Record where the newly published video starts from, so the performance
+        # curve has a baseline the moment it goes live.
+        try:
+            await asyncio.to_thread(snapshot_performance, True)
+        except Exception as exc:
+            log(f"[performance] post-run snapshot failed: {exc}")
 
 
 def parse_json_from_output(output: str, expect: str = "object"):
@@ -1908,6 +2156,25 @@ async def start_scheduler():
             time.sleep(20)
 
     threading.Thread(target=_loop, daemon=True).start()
+
+    def _performance_loop():
+        """Accumulate the view-count history the analytics chart is built from.
+
+        Runs independently of the pipeline: view counts keep changing long after a
+        video is published, and the point of the chart is to show that. The
+        snapshot function is itself rate-limited, so polling more often than the
+        minimum interval is harmless.
+        """
+        # Let the app finish starting before touching the network.
+        time.sleep(30)
+        while True:
+            try:
+                snapshot_performance()
+            except Exception as exc:
+                log(f"[performance] scheduled snapshot failed: {exc}")
+            time.sleep(600)
+
+    threading.Thread(target=_performance_loop, daemon=True).start()
 
 
 if __name__ == "__main__":
