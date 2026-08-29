@@ -184,8 +184,8 @@ AGENT_DEFINITIONS = [
     ("monitor", "Discovery Agent", "Find and rank the most valuable stories"),
     ("research", "Research Agent", "Gather evidence and test claims"),
     ("script", "Scriptwriter Agent", "Shape evidence into a concise story"),
-    ("plan", "Scene Planner", "Choose the best scene template per beat"),
-    ("render", "Visual Producer", "Build narration, scenes, and motion"),
+    ("direct", "Art Director", "Author the palette, shot list, and illustration briefs"),
+    ("render", "Visual Producer", "Illustrate, compose, and render the motion graphics"),
     ("publish", "Publisher Agent", "Deliver the finished video to YouTube"),
     ("analyst", "Analyst Agent", "Learn signals from the completed run"),
 ]
@@ -548,7 +548,7 @@ async def api_pubsub_run_stage(request: Request):
         stage = attrs.get("stage", "")
         story_index = int(attrs.get("story_index", 0))
         attempt = int(attrs.get("attempt", 1))
-        if not run_id or stage not in {"monitor", "research", "script", "plan", "render", "publish", "analyst"}:
+        if not run_id or stage not in {"monitor", "research", "script", "direct", "render", "publish", "analyst"}:
             return JSONResponse({"error": "invalid message"}, 400)
         asyncio.create_task(handle_stage_message(run_id, stage, story_index, attempt))
         return JSONResponse({"ok": True, "ack": True})
@@ -747,8 +747,8 @@ async def api_settings_set(request: Request):
     if isinstance(scheduler_values, dict):
         settings["scheduler"].update(scheduler_values)
         scheduler_config["enabled"] = bool(scheduler_values.get("enabled", scheduler_config["enabled"]))
-        if scheduler_values.get("interval_hours"):
-            scheduler_config["interval_hours"] = int(scheduler_values["interval_hours"])
+        if "interval_hours" in scheduler_values and scheduler_values.get("interval_hours") is not None:
+            scheduler_config["interval_hours"] = float(scheduler_values["interval_hours"])
         if scheduler_values.get("videos_per_run"):
             scheduler_config["stories"] = int(scheduler_values["videos_per_run"])
         scheduler_config["next_run"] = (

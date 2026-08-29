@@ -15,8 +15,8 @@ from .tools.editorial import (
 )
 from .tools.pipeline import (
     analyze_performance,
+    direct_visuals,
     discover_stories,
-    plan_scenes,
     publish_to_youtube,
     request_render,
     research_story,
@@ -71,8 +71,9 @@ Workflow (execute every step in order):
 2. research_story(story_index) - for the story that passed the gate.
    Then call evaluate_research_gate with its confidence/claims/contradictions.
 3. write_script() - only when research gate says 'continue'.
-4. plan_scenes() - let the scene planner choose the best scene template per
-   beat, then request_render() to render the finished script.
+4. direct_visuals() - let the Art Director author this episode's visual plan:
+   its palette, its illustration style, and a per-shot composition and
+   illustration brief. Then request_render() to produce the finished MP4.
    Then call evaluate_render_result with success/output_exists/output_size_bytes.
 5. publish_to_youtube() - only when the render passed validation AND
    evaluate_publication_gate returns 'publish'. The publication gate is
@@ -94,7 +95,7 @@ Rules:
         discover_stories,
         research_story,
         write_script,
-        plan_scenes,
+        direct_visuals,
         request_render,
         publish_to_youtube,
         analyze_performance,

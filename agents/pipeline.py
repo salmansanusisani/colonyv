@@ -175,15 +175,23 @@ def run_producer(script: dict, output_dir: Path) -> str | None:
     with open(script_path, "w") as f:
         json.dump(script, f, indent=2)
 
-    # Run build_video.py
-    py_exec = get_python_exec()
+    # Run build_video.py. The producer directs the visuals inline; handing it the
+    # research report lets the Art Director choose a semantic accent and write
+    # accurate illustration briefs.
+    cmd = [
+        get_python_exec(), str(PROJECT_ROOT / "producer" / "build_video.py"),
+        str(script_path),
+        "--output", str(output_dir / f"{story_id}.mp4"),
+        "--illustrations", os.getenv("COLONYV_ILLUSTRATION_BUDGET", "4"),
+    ]
+    research_path = output_dir / f"{story_id}_research.json"
+    if research_path.exists():
+        cmd += ["--research-json", str(research_path)]
+
     result = subprocess.run(
-        [py_exec, str(PROJECT_ROOT / "producer" / "build_video.py"),
-                     str(output_dir / f"{story_id}_script.json"),
-                     "--output", str(output_dir / f"{story_id}.mp4")],
-                     capture_output=True, text=True,
-                     cwd=str(PROJECT_ROOT), timeout=int(os.getenv("PRODUCER_TIMEOUT", "1800")),
-                     env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY}
+        cmd, capture_output=True, text=True,
+        cwd=str(PROJECT_ROOT), timeout=int(os.getenv("PRODUCER_TIMEOUT", "1800")),
+        env={**os.environ, "GROQ_API_KEY": GROQ_API_KEY},
     )
 
     if result.returncode != 0:
@@ -244,7 +252,17 @@ def main():
     parser = argparse.ArgumentParser(description="Content Ops Pipeline")
     parser.add_argument("--stories", type=int, default=1, help="Number of stories to process")
     parser.add_argument("--skip-publish", action="store_true", help="Skip YouTube upload")
+    parser.add_argument(
+        "--sandbox",
+        action="store_true",
+        help="Sandbox mode: run the full pipeline end to end but never upload to YouTube",
+    )
     args = parser.parse_args()
+
+    # --sandbox is the documented way for evaluators to exercise the whole
+    # pipeline safely. It previously appeared in the README and this module's
+    # docstring without ever being defined, so the documented command failed.
+    skip_publish = args.skip_publish or args.sandbox
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = PROJECT_ROOT / "output" / run_id
@@ -253,6 +271,8 @@ def main():
     log("PIPELINE", f"=== Starting pipeline run {run_id} ===")
     log("PIPELINE", f"Output dir: {output_dir}")
     log("PIPELINE", f"Processing {args.stories} stories")
+    if args.sandbox:
+        log("PIPELINE", "Sandbox mode: rendering only, no YouTube upload")
 
     # Step 1: Monitor
     stories = run_monitor(top=args.stories * 3)  # Fetch extra for dedup
@@ -302,10 +322,11 @@ def main():
 
         # Step 5: Publisher
         video_id = None
-        if not args.skip_publish:
+        if not skip_publish:
             video_id = run_publisher(mp4_path, script)
         else:
-            log("PUBLISHER", "Skipped (--skip-publish)")
+            reason = "--sandbox" if args.sandbox else "--skip-publish"
+            log("PUBLISHER", f"Skipped ({reason})")
 
         results.append({
             "story_id": story_id,

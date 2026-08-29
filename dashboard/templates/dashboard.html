@@ -1005,6 +1005,7 @@
                             <div class="settings-row"><div class="settings-label"><span>Maximum narration duration</span><small>Hard target for generated videos</small></div><input id="maxDuration" type="number" min="10" max="60" value="60" class="apple-input" style="width:100px;"><span style="font-size:12px;">seconds</span></div>
                             <div class="settings-row"><div class="settings-label"><span>Auto-Run Schedule</span><small>How often the agent runs autonomously in the background</small></div>
                                 <select id="scheduleInterval" class="apple-select" style="width:160px;">
+                                    <option value="0.016666666666666666">Every 1 Minute</option>
                                     <option value="1">Every 1 Hour</option>
                                     <option value="3">Every 3 Hours</option>
                                     <option value="6" selected>Every 6 Hours</option>
@@ -1520,6 +1521,11 @@ CONTROLS
                     const statusSpan = node.querySelector('.agent-node-status');
                     if (statusSpan) statusSpan.textContent = 'pending';
                 });
+                // Reset tracker nodes too
+                ['monitor','research','script','render','publish'].forEach(step => {
+                    const el = document.getElementById('step-' + step);
+                    if (el) el.className = 'tracker-node';
+                });
                 previousWasRunning = false;
             }
         }
@@ -1909,7 +1915,7 @@ CONTROLS
             }, 
             scheduler: {
                 enabled: true,
-                interval_hours: parseInt(document.getElementById('scheduleInterval').value),
+                interval_hours: parseFloat(document.getElementById('scheduleInterval').value),
                 videos_per_run: parseInt(document.getElementById('videosPerRun').value)
             },
             model, 

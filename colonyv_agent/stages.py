@@ -22,15 +22,15 @@ from colonyv_agent.tools.editorial import (
 )
 from colonyv_agent.tools.pipeline import (
     analyze_performance,
+    direct_visuals,
     discover_stories,
-    plan_scenes,
     publish_to_youtube,
     request_render,
     research_story,
     write_script,
 )
 
-STAGES = ["monitor", "research", "script", "plan", "render", "publish", "analyst"]
+STAGES = ["monitor", "research", "script", "direct", "render", "publish", "analyst"]
 
 MAX_VERIFY_ATTEMPTS = 3
 
@@ -110,15 +110,20 @@ def run_stage(
         if not script.get("success"):
             return {"stage": stage, "decision": "failed", "error": script.get("error"),
                     "next": [], "state": state}
-        return {"stage": stage, "decision": "continue", "next": [("plan", story_index, 1)],
+        return {"stage": stage, "decision": "continue", "next": [("direct", story_index, 1)],
                 "state": state}
 
-    if stage == "plan":
-        plan = plan_scenes(ctx)
+    if stage == "direct":
+        plan = direct_visuals(ctx)
         if plan.get("success"):
             return {"stage": stage, "decision": "continue", "next": [("render", story_index, 1)],
                     "state": state}
-        runtime.log(f"[plan] planner failed ({plan.get('error')}); falling back to auto styles")
+        # The renderer directs inline as a fallback, so a director failure must
+        # not abandon an otherwise good story.
+        runtime.log(
+            f"[direct] art director failed ({plan.get('error')}); "
+            "the producer will direct inline"
+        )
         return {"stage": stage, "decision": "fallback", "next": [("render", story_index, 1)],
                 "state": state}
 

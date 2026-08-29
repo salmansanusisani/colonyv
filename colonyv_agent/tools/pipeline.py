@@ -317,8 +317,14 @@ def write_script(tool_context: ToolContext) -> dict[str, Any]:
     }
 
 
-def plan_scenes(tool_context: ToolContext) -> dict[str, Any]:
-    """Let the ScenePlanner choose the best Remotion scene template per beat."""
+def direct_visuals(tool_context: ToolContext) -> dict[str, Any]:
+    """Have the Art Director author this episode's visual plan.
+
+    Replaces the legacy `plan_scenes` tool. Where the old ScenePlanner only chose
+    one of six fixed Remotion templates per beat, the Art Director authors the
+    palette, the illustration style contract, and a per-shot composition spec
+    including a bespoke illustration prompt.
+    """
     script = tool_context.state.get("script")
     if not script:
         return {"success": False, "error": "You must call write_script() first to produce a script."}
@@ -326,37 +332,65 @@ def plan_scenes(tool_context: ToolContext) -> dict[str, Any]:
     run_id = tool_context.state.get("run_id") or runtime.run_id
     run_dir = _ensure_run(run_id)
     story_id = script.get("story_id", run_id)
+
     script_json = run_dir / f"{story_id}_script.json"
     if not script_json.exists():
         _write(run_dir, f"{story_id}_script.json", script)
 
-    runtime.activity("plan", "active", f"Planning scenes for {story_id[:8]}")
+    research = tool_context.state.get("research")
+    research_json = run_dir / f"{story_id}_research.json"
+    if research and not research_json.exists():
+        _write(run_dir, f"{story_id}_research.json", research)
+
+    budget = int(os.getenv("COLONYV_ILLUSTRATION_BUDGET", "4"))
+
+    runtime.activity("direct", "active", f"Directing visuals for {story_id[:8]}")
+    cmd = [
+        get_python_exec(), str(AGENTS_DIR / "artdirector" / "artdirector.py"),
+        "--script-json", str(script_json),
+        "--illustrations", str(budget),
+        "--allow-fallback",
+    ]
+    if research_json.exists():
+        cmd += ["--research-json", str(research_json)]
+
     result = run_script(
-        [get_python_exec(), str(AGENTS_DIR / "planner" / "planner.py"),
-         "--script-json", str(script_json)],
-        cwd=str(AGENTS_DIR),
-        timeout=180,
-        step_label=f"plan-{story_id[:8]}",
+        cmd, cwd=str(AGENTS_DIR), timeout=240, step_label=f"direct-{story_id[:8]}"
     )
     plan = _parse_json_output(result.stdout, expect="object")
-    if not plan or not plan.get("scenes"):
-        runtime.activity("plan", "failed", "Scene plan produced no scenes")
-        return {"success": False, "error": "Scene plan failed", "output": result.stdout[-400:]}
+    if not plan or not plan.get("shots"):
+        runtime.activity("direct", "failed", "Art director produced no plan")
+        return {"success": False, "error": "Art direction failed", "output": result.stdout[-400:]}
 
     plan["story_id"] = story_id
-    _write(run_dir, f"{story_id}_scene_plan.json", plan)
-    tool_context.state["scene_plan"] = plan
+    _write(run_dir, f"{story_id}_visual_plan.json", plan)
+    tool_context.state["visual_plan"] = plan
+
+    layouts = [s.get("layout", "?") for s in plan["shots"]]
+    illustrated = sum(1 for s in plan["shots"] if s.get("illustration"))
+    palette = plan.get("palette", {})
     runtime.activity(
-        "plan",
+        "direct",
         "complete",
-        f"{len(plan['scenes'])} scenes planned, accent={plan.get('accent_color', '')}",
+        f"{len(layouts)} shots, {len(set(layouts))} distinct layouts, "
+        f"{illustrated} illustrations, accent={palette.get('accent_role')}",
     )
     return {
         "success": True,
-        "scenes": len(plan["scenes"]),
-        "accent_color": plan.get("accent_color", ""),
+        "concept": plan.get("concept", ""),
+        "shots": len(plan["shots"]),
+        "distinct_layouts": len(set(layouts)),
+        "illustrations_planned": illustrated,
+        "accent": palette.get("accent", ""),
+        "accent_role": palette.get("accent_role", ""),
+        "motion_language": plan.get("motion_language", ""),
         "story_id": story_id,
     }
+
+
+def plan_scenes(tool_context: ToolContext) -> dict[str, Any]:
+    """Deprecated alias for direct_visuals, kept so older callers keep working."""
+    return direct_visuals(tool_context)
 
 
 def request_render(tool_context: ToolContext) -> dict[str, Any]:
@@ -377,10 +411,19 @@ def request_render(tool_context: ToolContext) -> dict[str, Any]:
     render_cmd = [
         get_python_exec(), str(PROJECT_ROOT / "producer" / "build_video.py"),
         str(script_json), "--output", str(output_mp4),
+        "--illustrations", os.getenv("COLONYV_ILLUSTRATION_BUDGET", "4"),
     ]
-    scene_plan = run_dir / f"{story_id}_scene_plan.json"
-    if scene_plan.exists():
-        render_cmd += ["--scene-plan", str(scene_plan)]
+
+    # Prefer the plan the Art Director stage already produced so the dashboard
+    # and the render agree on the same direction.
+    visual_plan = run_dir / f"{story_id}_visual_plan.json"
+    if visual_plan.exists():
+        render_cmd += ["--visual-plan", str(visual_plan)]
+
+    research_json = run_dir / f"{story_id}_research.json"
+    if research_json.exists():
+        render_cmd += ["--research-json", str(research_json)]
+
     result = run_script(
         render_cmd,
         cwd=str(PROJECT_ROOT),
