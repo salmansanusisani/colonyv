@@ -114,8 +114,8 @@ def run_factory(stories: int) -> dict[str, Any]:
                 pg_reason = research_gate["reason"]
                 break
 
-            claims = research.get("claims", [])
-            contradictions_list = research.get("contradictions", [])
+            claims = (ctx.state.get("research") or research).get("claims", []) or []
+            contradictions_list = (ctx.state.get("research") or research).get("contradictions", []) or []
             verified_claims_count = sum(1 for c in claims if isinstance(c, dict) and c.get("verified"))
             pg = evaluate_publication_gate(
                 confidence=research.get("confidence", "low") or "low",

@@ -225,3 +225,45 @@ def test_factory_drops_zero_claims_story(monkeypatch):
     assert "error" in res
     assert res["error"] == "No usable candidates were discovered or processed successfully"
 
+
+
+def test_factory_publication_gate_uses_full_report_from_state(monkeypatch):
+    """Regression: the research tool returns counts (int contradictions, no claims
+    key); the publication gate must read the full report from ctx.state, else
+    'object of type int has no len()' crashes the run."""
+    from colonyv_agent import factory
+
+    def fake_discover(ctx):
+        ctx.state["stories"] = [
+            {"index": 0, "story_id": "a", "title": "T1", "relevance_score": 0.9, "novelty_score": 0.9, "urgency_score": 0.9}
+        ]
+        return {"success": True, "count": 1}
+
+    calls = {"research": 0}
+
+    def fake_research(idx, ctx):
+        calls["research"] += 1
+        # Matches the real research_story() tool return: counts only, no claims.
+        ctx.state["research"] = {
+            "claims": [{"text": "c1", "verified": False}, {"text": "c2", "verified": False}],
+            "contradictions": [],
+            "confidence": "low",
+            "sources": [{"url": "https://x"}],
+        }
+        return {"success": True, "confidence": "low", "verified_claims": 0,
+                "total_claims": 2, "contradictions": 0, "sources_fetched": 1}
+
+    monkeypatch.setattr(factory, "discover_stories", fake_discover)
+    monkeypatch.setattr(factory, "research_story", fake_research)
+    monkeypatch.setattr(factory, "write_script", lambda ctx: {"success": True})
+    monkeypatch.setattr(factory, "direct_visuals", lambda ctx: {"success": True, "shots": 4, "distinct_layouts": 3, "illustrations_planned": 3, "accent_role": "topic"})
+    monkeypatch.setattr(factory, "request_render", lambda ctx: {"success": True, "output_exists": True, "output_size_bytes": 200000})
+    monkeypatch.setattr(factory, "publish_to_youtube", lambda ctx: {"success": True, "video_id": "abc"})
+    monkeypatch.setattr(factory, "analyze_performance", lambda ctx: {"success": True})
+    monkeypatch.setattr(factory.runtime, "checkpoint", lambda *args: True)
+
+    res = factory.run_factory(1)
+
+    assert "error" not in res
+    assert len(res["stories_produced"]) == 1
+    assert calls["research"] == 1

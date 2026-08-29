@@ -105,8 +105,9 @@ def run_stage(
 
         # Run the publication gate now, before paying for a script and a render.
         # If the story isn't publishable, re-research it now, or move to the next candidate.
-        claims = research.get("claims", []) or []
-        contradictions_list = research.get("contradictions", []) or []
+        full_research = ctx.state.get("research") or research
+        claims = full_research.get("claims", []) or []
+        contradictions_list = full_research.get("contradictions", []) or []
         verified_claims_count = sum(1 for c in claims if isinstance(c, dict) and c.get("verified"))
         pg = evaluate_publication_gate(
             confidence=research.get("confidence", "low") or "low",
