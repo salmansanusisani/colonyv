@@ -134,6 +134,56 @@ def save_seen(path, seen):
         print(f"  [warn] Failed to save seen file {path}: {e}", file=sys.stderr)
 
 
+# On Cloud Run the local seen.json is wiped every restart, so dedup memory must
+# survive the instance. Each story hash is stored as a Firestore document id in
+# the "colonyv_seen" collection (one tiny doc per story, no 1MB size limit).
+# Local runs with no GOOGLE_CLOUD_PROJECT skip Firestore entirely.
+CLOUD_SEEN_COLLECTION = "colonyv_seen"
+
+
+def _cloud_firestore():
+    if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return None
+    try:
+        from google.cloud import firestore
+        return firestore.Client(project=os.environ["GOOGLE_CLOUD_PROJECT"])
+    except Exception as e:
+        print(f"  [warn] Firestore unavailable, using local seen only: {e}", file=sys.stderr)
+        return None
+
+
+def cloud_seen_ids() -> set:
+    """All story hashes the cloud has ever seen (empty set if not on Cloud)."""
+    db = _cloud_firestore()
+    if db is None:
+        return set()
+    try:
+        return {ref.id for ref in db.collection(CLOUD_SEEN_COLLECTION).list_documents()}
+    except Exception as e:
+        print(f"  [warn] Failed to read seen from Firestore: {e}", file=sys.stderr)
+        return set()
+
+
+def cloud_mark_seen_ids(story_ids: set) -> None:
+    """Persist newly-seen story hashes to Firestore (idempotent, batched)."""
+    if not story_ids:
+        return
+    db = _cloud_firestore()
+    if db is None:
+        return
+    try:
+        collection = db.collection(CLOUD_SEEN_COLLECTION)
+        batch = db.batch()
+        for i, story_id in enumerate(sorted(story_ids)):
+            batch.set(collection.document(story_id), {"story_id": story_id}, merge=True)
+            if i % 500 == 499:
+                batch.commit()
+                batch = db.batch()
+        batch.commit()
+    except Exception as e:
+        print(f"  [warn] Failed to save seen to Firestore: {e}", file=sys.stderr)
+
+
 def story_id(title, url):
     raw = f"{title.strip().lower()}|{url.strip().lower()}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -304,6 +354,11 @@ def main():
 
     schema = load_schema()
     seen = load_seen(Path(args.seen_file))
+    cloud_seen = cloud_seen_ids() if os.environ.get("GOOGLE_CLOUD_PROJECT") else set()
+    if cloud_seen:
+        print(f"  {len(cloud_seen)} seen stories loaded from cloud dedup store", flush=True)
+    prior_seen = set(seen)
+    seen |= cloud_seen
 
     # Load feeds from --config flag, then dashboard feeds.json, then defaults
     feeds = DEFAULT_FEEDS
@@ -357,6 +412,10 @@ def main():
             print(f"  OK {s['title'][:60]} (rel={s['relevance_score']:.2f} nov={s['novelty_score']:.2f} urg={s['urgency_score']:.2f})")
 
     save_seen(Path(args.seen_file), seen)
+    new_ids = seen - prior_seen
+    if new_ids:
+        print(f"  Persisting {len(new_ids)} newly seen stories (local+cloud)", flush=True)
+        cloud_mark_seen_ids(new_ids)
     print(f"\nSaved {len(seen)} seen stories to {args.seen_file}")
 
     print(f"\n=== Top {len(valid_results)} Stories ===")

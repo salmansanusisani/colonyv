@@ -1004,7 +1004,10 @@ async def api_pipeline_pause():
         return JSONResponse({"error": "Pipeline is not running"}, 409)
     pipeline_state["paused"] = True
     pipeline_state["pause_start"] = time.time()
-    reset_agent_activity()
+    # Deliberately do NOT reset agent activity here: pause freezes the board in
+    # its current state (active stays active, completed stays completed) so
+    # resume continues exactly where it left off. Resetting would grey every
+    # card and lost completed stages would never get their status back.
     from colonyv_agent import pipeline_runtime
     pipeline_runtime.set_paused(True)
     proc = pipeline_state.get("current_process")
