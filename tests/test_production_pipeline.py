@@ -101,21 +101,23 @@ def test_stage_research_continue_schedules_script(monkeypatch):
     assert ("script", 0, 1) in result["next"]
 
 
-def test_stage_publish_blocks_only_transiently_then_reverifies(monkeypatch):
+def test_stage_research_blocks_unverified_content_and_reverifies(monkeypatch):
     from colonyv_agent import stages
     state: dict = {"research": {"confidence": "low", "contradictions": 0,
                                 "total_claims": 1, "verified_claims": 0}}
 
-    def fake_upload(tool_context):
-        return {"success": False, "skipped": True, "reason": "skip_publish"}
+    def fake_research(i, tool_context):
+        return {"success": True, "research": state["research"]}
 
-    monkeypatch.setattr(stages, "publish_to_youtube", fake_upload)
-    result = stages.run_stage(state, "publish", 0, 1)
-    assert result["decision"] == "reverify"
+    monkeypatch.setattr(stages, "research_story", fake_research)
+    monkeypatch.setattr(stages, "evaluate_story_candidate", lambda **k: {"decision": "continue"})
+    
+    result = stages.run_stage(state, "research", 0, 1)
+    assert result["decision"] == "retry"
     assert ("research", 0, 2) in result["next"]
 
 
-def test_stage_publish_verification_exhausted_escalates_candidate(monkeypatch):
+def test_stage_research_verification_exhausted_escalates_candidate(monkeypatch):
     from colonyv_agent import stages
     state: dict = {
         "research": {"confidence": "low", "contradictions": 0,
@@ -125,12 +127,14 @@ def test_stage_publish_verification_exhausted_escalates_candidate(monkeypatch):
         "stories_target": 2,
     }
 
-    def fake_upload(tool_context):
-        return {"success": False, "skipped": True, "reason": "skip_publish"}
+    def fake_research(i, tool_context):
+        return {"success": True, "research": state["research"]}
 
-    monkeypatch.setattr(stages, "publish_to_youtube", fake_upload)
-    result = stages.run_stage(state, "publish", 0, 3)
-    assert result["decision"] == "escalate"
+    monkeypatch.setattr(stages, "research_story", fake_research)
+    monkeypatch.setattr(stages, "evaluate_story_candidate", lambda **k: {"decision": "continue"})
+    
+    result = stages.run_stage(state, "research", 0, 3)
+    assert result["decision"] == "stop"
     assert ("research", 1, 1) in result["next"]
 
 

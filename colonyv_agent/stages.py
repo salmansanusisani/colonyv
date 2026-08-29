@@ -102,6 +102,34 @@ def run_stage(
             return {"stage": stage, "decision": "stop",
                     "reason": rg["reason"], "next": _next_candidate_research(state, story_index),
                     "state": state}
+
+        # Run the publication gate now, before paying for a script and a render.
+        # If the story isn't publishable, re-research it now, or move to the next candidate.
+        claims = research.get("claims", []) or []
+        contradictions_list = research.get("contradictions", []) or []
+        verified_claims_count = sum(1 for c in claims if isinstance(c, dict) and c.get("verified"))
+        pg = evaluate_publication_gate(
+            confidence=research.get("confidence", "low") or "low",
+            unresolved_contradictions=len(contradictions_list),
+            unsupported_claims=max(0, len(claims) - verified_claims_count),
+        )
+        if pg["decision"] != "publish":
+            runtime.log(f"[research] publication gate: {pg['reason']} (attempt {attempt}/{MAX_VERIFY_ATTEMPTS})")
+            if attempt < MAX_VERIFY_ATTEMPTS:
+                return {"stage": stage, "decision": "reverify",
+                        "reason": pg["reason"], "next": [("research", story_index, attempt + 1)],
+                        "state": state}
+            fallback_next = _next_candidate_research(state, story_index)
+            if fallback_next:
+                runtime.log(f"[research] verification exhausted; escalating to next candidate {fallback_next}")
+                return {"stage": stage, "decision": "escalate", "reason": pg["reason"],
+                        "next": fallback_next, "state": state}
+            # Every candidate has been exhausted. Proceed anyway, but the upload will be unlisted.
+            runtime.log("[research] all candidates exhausted; proceeding, but will upload unlisted")
+            state["publish_privacy"] = "unlisted"
+        else:
+            state["publish_privacy"] = "public"
+
         return {"stage": stage, "decision": "continue", "next": [("script", story_index, 1)],
                 "state": state}
 
@@ -145,35 +173,6 @@ def run_stage(
                 "state": state}
 
     if stage == "publish":
-        research = state.get("research", {})
-        claims = research.get("claims", []) or []
-        contradictions = research.get("contradictions", []) or []
-        verified_claims = sum(1 for c in claims if isinstance(c, dict) and c.get("verified"))
-        pg = evaluate_publication_gate(
-            confidence=research.get("confidence", "low") or "low",
-            unresolved_contradictions=len(contradictions),
-            unsupported_claims=max(0, len(claims) - verified_claims),
-        )
-        if pg["decision"] != "publish":
-            runtime.log(f"[publish] gate: {pg['reason']} (attempt {attempt}/{MAX_VERIFY_ATTEMPTS})")
-            if attempt < MAX_VERIFY_ATTEMPTS:
-                return {"stage": stage, "decision": "reverify",
-                        "reason": pg["reason"], "next": [("research", story_index, attempt + 1)],
-                        "state": state}
-            fallback_next = _next_candidate_research(state, story_index)
-            if fallback_next:
-                runtime.log(f"[publish] verification exhausted; escalating to next candidate {fallback_next}")
-                return {"stage": stage, "decision": "escalate", "reason": pg["reason"],
-                        "next": fallback_next, "state": state}
-            # Every candidate has been exhausted. Still produce a video, but
-            # unlisted: the gate's verdict stands even when there is nothing left
-            # to fall back to.
-            runtime.log(
-                "[publish] all candidates exhausted; uploading best available as unlisted"
-            )
-            ctx.state["publish_privacy"] = "unlisted"
-        else:
-            ctx.state["publish_privacy"] = "public"
         upload = publish_to_youtube(ctx)
         if upload.get("skipped"):
             return {"stage": stage, "decision": "skipped",

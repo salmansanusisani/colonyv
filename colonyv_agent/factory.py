@@ -158,28 +158,10 @@ def run_factory(stories: int) -> dict[str, Any]:
             return {"stopped": True, "stories_produced": produced,
                     "run_id": ctx.state.get("run_id")}
 
-        publication = evaluate_publication_gate(
-            confidence=(research.get("confidence") or "low"),
-            unresolved_contradictions=int(research.get("contradictions", 0)),
-            unsupported_claims=max(
-                0, int(research.get("total_claims", 0)) - int(research.get("verified_claims", 0))
-            ),
-        )
-        _policy(publication)
-        if publication["decision"] != "publish":
-            # The run still produces a reviewable video, but an unverified story
-            # goes up unlisted rather than public. Publishing it publicly anyway
-            # would contradict the verification the rest of the pipeline performs.
-            ctx.state["publish_privacy"] = "unlisted"
-            runtime.log(
-                f"[publish] gate: {publication['reason']}; uploading unlisted for review"
-            )
-            runtime.activity(
-                "publish", "escalate",
-                "Gate blocked public release; uploading unlisted for review",
-            )
-        else:
-            ctx.state["publish_privacy"] = "public"
+        # (The publication gate now evaluates right after research to catch
+        # failures before we pay for a render. By the time we reach publish, the
+        # privacy state is already set.)
+
         for upload_attempt in range(1, 4):
             if not runtime.checkpoint(f"upload attempt {upload_attempt}/3"):
                 runtime.activity("autonomous", "stopped", "Run stopped by operator before upload")
