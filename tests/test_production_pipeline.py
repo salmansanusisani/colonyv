@@ -93,7 +93,8 @@ def test_stage_research_continue_schedules_script(monkeypatch):
 
     def fake_research(idx, tool_context):
         return {"success": True, "confidence": "medium", "verified_claims": 1,
-                "total_claims": 1, "contradictions": 0, "sources_fetched": 1}
+                "total_claims": 1, "contradictions": 0, "sources_fetched": 1,
+                "claims": [{"text": "a", "verified": True}]}
 
     monkeypatch.setattr(stages, "research_story", fake_research)
     result = stages.run_stage(state, "research", 0, 1)
@@ -101,34 +102,35 @@ def test_stage_research_continue_schedules_script(monkeypatch):
     assert ("script", 0, 1) in result["next"]
 
 
-def test_stage_research_blocks_unverified_content_and_reverifies(monkeypatch):
+def test_stage_research_publishes_unverified_content(monkeypatch):
     from colonyv_agent import stages
-    state: dict = {"research": {"confidence": "low", "contradictions": 0,
-                                "total_claims": 1, "verified_claims": 0}}
+    state: dict = {}
 
     def fake_research(i, tool_context):
-        return {"success": True, "research": state["research"]}
+        return {"success": True, "confidence": "low", "contradictions": 0,
+                "total_claims": 1, "verified_claims": 0, "sources_fetched": 1,
+                "claims": [{"text": "a", "verified": False}]}
 
     monkeypatch.setattr(stages, "research_story", fake_research)
     monkeypatch.setattr(stages, "evaluate_story_candidate", lambda **k: {"decision": "continue"})
     
     result = stages.run_stage(state, "research", 0, 1)
-    assert result["decision"] == "retry"
-    assert ("research", 0, 2) in result["next"]
+    assert result["decision"] == "continue"
+    assert ("script", 0, 1) in result["next"]
 
 
-def test_stage_research_verification_exhausted_escalates_candidate(monkeypatch):
+def test_stage_research_zero_claims_exhausted_escalates_candidate(monkeypatch):
     from colonyv_agent import stages
     state: dict = {
-        "research": {"confidence": "low", "contradictions": 0,
-                     "total_claims": 1, "verified_claims": 0},
         "stories": [{"story_id": "1", "title": "a", "index": 0},
                     {"story_id": "2", "title": "b", "index": 1}],
         "stories_target": 2,
     }
 
     def fake_research(i, tool_context):
-        return {"success": True, "research": state["research"]}
+        return {"success": True, "confidence": "low", "contradictions": 0,
+                "total_claims": 0, "verified_claims": 0, "sources_fetched": 1,
+                "claims": []}
 
     monkeypatch.setattr(stages, "research_story", fake_research)
     monkeypatch.setattr(stages, "evaluate_story_candidate", lambda **k: {"decision": "continue"})
@@ -189,3 +191,37 @@ def test_runtime_configure_and_log(monkeypatch):
     assert rt.run_id == "r1"
     assert rt.skip_publish is True
     rt.configure()
+def test_factory_drops_zero_claims_story(monkeypatch):
+    from colonyv_agent import factory
+    
+    def fake_discover(ctx):
+        ctx.state["stories"] = [
+            {"index": 0, "story_id": "a", "title": "T1", "relevance_score": 0.9, "novelty_score": 0.9, "urgency_score": 0.9}
+        ]
+        return {"success": True, "count": 1}
+    
+    def fake_research(idx, ctx):
+        return {"success": True, "confidence": "low", "contradictions": 0,
+                "total_claims": 0, "verified_claims": 0, "sources_fetched": 1,
+                "claims": []}
+                
+    monkeypatch.setattr(factory, "discover_stories", fake_discover)
+    monkeypatch.setattr(factory, "research_story", fake_research)
+    
+    # We don't need script or render or publish as it should drop before them.
+    # But just in case, mock them.
+    monkeypatch.setattr(factory, "write_script", lambda ctx: {"success": True})
+    monkeypatch.setattr(factory, "direct_visuals", lambda ctx: {"success": True})
+    monkeypatch.setattr(factory, "request_render", lambda ctx: {"success": True, "output_exists": True, "output_size_bytes": 200000})
+    monkeypatch.setattr(factory, "publish_to_youtube", lambda ctx: {"success": True, "video_id": "abc"})
+    monkeypatch.setattr(factory, "analyze_performance", lambda ctx: {"success": True})
+    
+    # Mock runtime checkpoint to just return True
+    monkeypatch.setattr(factory.runtime, "checkpoint", lambda *args: True)
+    
+    res = factory.run_factory(1)
+    
+    # It should fail with "No usable candidates were discovered or processed successfully"
+    assert "error" in res
+    assert res["error"] == "No usable candidates were discovered or processed successfully"
+

@@ -58,8 +58,9 @@ def evaluate_research_gate(
     confidence = confidence.lower().strip()
     verified_ratio = verified_claims / max(1, total_claims)
     unusable = (
-        contradictions >= 2
-        or (confidence == "low" and verified_ratio < 0.4 and sources_fetched == 0)
+        total_claims == 0
+        or contradictions >= 2
+        or sources_fetched == 0
     )
     if unusable:
         if research_attempt < maximum_research_attempts:
@@ -120,13 +121,15 @@ def evaluate_publication_gate(
     unresolved_contradictions: int,
     unsupported_claims: int,
     human_approved: bool = False,
+    total_claims: int = 1,
+    min_claims: int = 1,
 ) -> dict[str, Any]:
     """Block unsafe publication while allowing autonomous uncertainty handling."""
     confidence = confidence.lower().strip()
-    if unsupported_claims > 0 or confidence == "low" or unresolved_contradictions >= 2:
+    if unresolved_contradictions >= 2 or total_claims < min_claims:
         return {
             "decision": "block",
-            "reason": "Public publishing is blocked by unsupported or low-confidence claims.",
+            "reason": "Public publishing is blocked by insufficient or contradictory claims.",
             "next_action": "notify_operator",
         }
     return {

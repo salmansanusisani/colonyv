@@ -401,6 +401,7 @@ async def launch_production_run(stories: int, *, source: str = "manual") -> dict
     pipeline_runtime.configure(
         logger=log,
         activity=set_agent_activity,
+        reset=reset_agent_activity,
         env=model_env,
         out_dir=OUTPUT_DIR,
         run=run_id,
@@ -496,6 +497,7 @@ async def handle_stage_message(run_id: str, stage: str, story_index: int, attemp
         pipeline_runtime.configure(
             logger=log,
             activity=set_agent_activity,
+            reset=reset_agent_activity,
             env=dict(os.environ),
             out_dir=OUTPUT_DIR,
             run=run_id,
@@ -518,6 +520,11 @@ async def handle_stage_message(run_id: str, stage: str, story_index: int, attemp
         f"[async] stage {stage} -> {result['decision']} "
         f"next={[(s, i, a) for s, i, a in result.get('next', [])]}"
     )
+
+    if stage == "publish" and result.get("decision") == "complete":
+        from colonyv_agent import pipeline_runtime
+        pipeline_runtime.reset_activity()
+        pipeline_runtime.activity("monitor", "complete", "Discovery complete")
 
     project_id = settings.get("cloud", {}).get("project_id") or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
     from cloud import pubsub as ps
@@ -684,6 +691,7 @@ async def api_pipeline_pause():
         return JSONResponse({"error": "Pipeline is not running"}, 409)
     pipeline_state["paused"] = True
     pipeline_state["pause_start"] = time.time()
+    reset_agent_activity()
     from colonyv_agent import pipeline_runtime
     pipeline_runtime.set_paused(True)
     proc = pipeline_state.get("current_process")

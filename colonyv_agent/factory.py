@@ -1,13 +1,3 @@
-"""Deterministic production driver for the ADK pipeline-tool suite.
-
-The Editorial Director exposes discovery, research, scriptwriting, rendering,
-publishing, and analysis as Google ADK tools. This driver operates that tool
-suite in a validated order so a single autonomous run reliably produces finished
-videos: it calls the real agent executables through the ADK tools and enforces
-the same editorial gates the director would apply, keeping the full-loops policy
-checks (research retry, render retry, publication block) in the loop.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -47,21 +37,40 @@ def _policy(decision: dict[str, Any]) -> None:
 def run_factory(stories: int) -> dict[str, Any]:
     ctx = _Context()
     produced: list[dict[str, Any]] = []
+    attempted_story_ids: set[str] = set()
+    discovery_passes = 0
+    MAX_DISCOVERY_PASSES = 3
 
     discover = discover_stories(ctx)
     if not discover.get("success"):
         return {"error": discover.get("error", "discovery failed")}
+    discovery_passes += 1
 
     run_dir = ctx.state.get("run_dir")
-    candidates = [
-        s
-        for s in ctx.state.get("stories", [])
-        if s.get("story_id") and s.get("title")
-    ]
-    if not candidates:
-        return {"error": "No usable candidates were discovered", "run_id": ctx.state.get("run_id")}
+    
+    def get_candidates():
+        return [s for s in ctx.state.get("stories", []) if s.get("story_id") and s.get("title") and s.get("story_id") not in attempted_story_ids]
 
-    for story in candidates[: stories]:
+    while len(produced) < stories and discovery_passes <= MAX_DISCOVERY_PASSES:
+        candidates = get_candidates()
+        
+        if not candidates:
+            if discovery_passes < MAX_DISCOVERY_PASSES:
+                runtime.log("[factory] Candidates exhausted, re-running discovery...")
+                discover_stories(ctx)
+                discovery_passes += 1
+                continue
+            else:
+                runtime.log("[factory] Candidates exhausted and max discovery passes reached.")
+                break
+
+        story = candidates[0]
+        attempted_story_ids.add(story["story_id"])
+
+        if len(produced) > 0:
+            runtime.reset_activity()
+            runtime.activity("monitor", "complete", "Discovery complete")
+
         if not runtime.checkpoint(f"pending content {story['title'][:40]}"):
             runtime.activity("autonomous", "stopped", "Run stopped by operator")
             return {"stopped": True, "stories_produced": produced,
@@ -79,30 +88,55 @@ def run_factory(stories: int) -> dict[str, Any]:
             continue
 
         research = None
-        research_gate: dict[str, Any] | None = None
-        for attempt in range(1, 4):
+        pg_decision = None
+        pg_reason = ""
+        for attempt in range(1, MAX_VERIFY_ATTEMPTS + 1):
             research = research_story(story["index"], ctx)
             if not research.get("success"):
-                research_gate = {"decision": "stop", "reason": research.get("error", "research failed")}
+                pg_decision = "stop"
+                pg_reason = research.get("error", "research failed")
                 break
+                
             research_gate = evaluate_research_gate(
                 confidence=research.get("confidence", "low") or "low",
                 verified_claims=research.get("verified_claims", 0),
                 total_claims=research.get("total_claims", 0),
                 contradictions=research.get("contradictions", 0),
                 research_attempt=attempt,
+                maximum_research_attempts=MAX_VERIFY_ATTEMPTS,
                 sources_fetched=int(research.get("sources_fetched", 0)),
             )
             _policy(research_gate)
             if research_gate["decision"] == "retry":
                 continue
+            elif research_gate["decision"] == "stop":
+                pg_decision = "stop"
+                pg_reason = research_gate["reason"]
+                break
+
+            claims = research.get("claims", [])
+            contradictions_list = research.get("contradictions", [])
+            verified_claims_count = sum(1 for c in claims if isinstance(c, dict) and c.get("verified"))
+            pg = evaluate_publication_gate(
+                confidence=research.get("confidence", "low") or "low",
+                unresolved_contradictions=len(contradictions_list),
+                unsupported_claims=max(0, len(claims) - verified_claims_count),
+                total_claims=len(claims),
+            )
+            _policy(pg)
+            pg_decision = pg["decision"]
+            pg_reason = pg["reason"]
+            if pg_decision != "publish":
+                if attempt < MAX_VERIFY_ATTEMPTS:
+                    runtime.log(f"[research] publication gate: {pg_reason} (attempt {attempt}/{MAX_VERIFY_ATTEMPTS})")
+                    continue
+                else:
+                    break
             break
 
-        if not research or not research.get("success"):
-            runtime.activity("research", "failed", "Research could not be completed for this content")
-            continue
-        if research_gate and research_gate["decision"] == "stop":
-            runtime.activity("research", "failed", research_gate["reason"])
+        if pg_decision != "publish" or not research or not research.get("success"):
+            runtime.activity("research", "failed", pg_reason or "Verification failed")
+            runtime.log(f"[research] verification exhausted; dropping story {story['story_id'][:8]}")
             continue
 
         if not runtime.checkpoint(f"content '{story['title'][:40]}' research complete"):
@@ -158,9 +192,7 @@ def run_factory(stories: int) -> dict[str, Any]:
             return {"stopped": True, "stories_produced": produced,
                     "run_id": ctx.state.get("run_id")}
 
-        # (The publication gate now evaluates right after research to catch
-        # failures before we pay for a render. By the time we reach publish, the
-        # privacy state is already set.)
+        ctx.state["publish_privacy"] = "public"
 
         for upload_attempt in range(1, 4):
             if not runtime.checkpoint(f"upload attempt {upload_attempt}/3"):
@@ -190,6 +222,9 @@ def run_factory(stories: int) -> dict[str, Any]:
             f"[factory] content complete: {story['title'][:60]} -> "
             f"{render.get('mp4_path', 'no video')}"
         )
+
+    if len(produced) == 0:
+        return {"error": "No usable candidates were discovered or processed successfully", "run_id": ctx.state.get("run_id")}
 
     if not runtime.checkpoint("analysis"):
         runtime.activity("autonomous", "stopped", "Run stopped by operator before analysis")

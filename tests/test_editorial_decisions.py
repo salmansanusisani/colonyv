@@ -31,9 +31,14 @@ def test_medium_confidence_publishes_autonomously():
     assert publish["decision"] == "publish"
 
 
-def test_unsupported_claim_blocks_publication():
-    result = evaluate_publication_gate("high", 0, 1, True)
+def test_zero_claims_blocks_publication():
+    result = evaluate_publication_gate("high", 0, 0, True, total_claims=0)
     assert result["decision"] == "block"
+
+
+def test_unverified_but_existing_claims_publishes():
+    result = evaluate_publication_gate("low", 0, 1, True, total_claims=1)
+    assert result["decision"] == "publish"
 
 
 def test_render_and_upload_retry_policies():

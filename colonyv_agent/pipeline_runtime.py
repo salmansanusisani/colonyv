@@ -20,6 +20,7 @@ from typing import Callable
 
 _log_fn: Callable[[str], None] | None = None
 _activity_fn: Callable[[str, str, str], None] | None = None
+_reset_fn: Callable[[], None] | None = None
 env_overrides: dict[str, str] = {}
 run_id: str | None = None
 output_dir: Path | None = None
@@ -67,17 +68,20 @@ def configure(
     *,
     logger: Callable[[str], str | None] | None = None,
     activity: Callable[[str, str, str], None] | None = None,
+    reset: Callable[[], None] | None = None,
     env: dict[str, str] | None = None,
     out_dir: Path | None = None,
     run: str | None = None,
     skip: bool = False,
     reset_controls: bool = True,
 ) -> None:
-    global _log_fn, _activity_fn, env_overrides, output_dir, run_id, skip_publish, _paused, _stop_requested, _paused_total
+    global _log_fn, _activity_fn, _reset_fn, env_overrides, output_dir, run_id, skip_publish, _paused, _stop_requested, _paused_total
     if logger is not None:
         _log_fn = logger
     if activity is not None:
         _activity_fn = activity
+    if reset is not None:
+        _reset_fn = reset
     if env is not None:
         env_overrides = env
     if out_dir is not None:
@@ -129,6 +133,12 @@ def log(message: str) -> None:
 def activity(key: str, status: str, detail: str) -> None:
     if _activity_fn is not None:
         _activity_fn(key, status, detail)
+
+
+def reset_activity() -> None:
+    """Reset all non-background agent activities to their waiting state."""
+    if _reset_fn is not None:
+        _reset_fn()
 
 
 def request_stop() -> None:

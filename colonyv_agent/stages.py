@@ -112,6 +112,7 @@ def run_stage(
             confidence=research.get("confidence", "low") or "low",
             unresolved_contradictions=len(contradictions_list),
             unsupported_claims=max(0, len(claims) - verified_claims_count),
+            total_claims=len(claims),
         )
         if pg["decision"] != "publish":
             runtime.log(f"[research] publication gate: {pg['reason']} (attempt {attempt}/{MAX_VERIFY_ATTEMPTS})")
@@ -124,9 +125,15 @@ def run_stage(
                 runtime.log(f"[research] verification exhausted; escalating to next candidate {fallback_next}")
                 return {"stage": stage, "decision": "escalate", "reason": pg["reason"],
                         "next": fallback_next, "state": state}
-            # Every candidate has been exhausted. Proceed anyway, but the upload will be unlisted.
-            runtime.log("[research] all candidates exhausted; proceeding, but will upload unlisted")
-            state["publish_privacy"] = "unlisted"
+            
+            discovery_passes = state.get("discovery_passes", 1)
+            if discovery_passes < 3:
+                runtime.log("[research] all candidates exhausted; re-running discovery")
+                state["discovery_passes"] = discovery_passes + 1
+                return {"stage": stage, "decision": "escalate", "reason": "out of candidates", "next": [("monitor", 0, 1)], "state": state}
+
+            runtime.log("[research] all candidates exhausted; stopping")
+            return {"stage": stage, "decision": "stop", "reason": "exhausted", "next": [], "state": state}
         else:
             state["publish_privacy"] = "public"
 
