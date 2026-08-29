@@ -449,7 +449,14 @@ def request_render(tool_context: ToolContext) -> dict[str, Any]:
 
 
 def publish_to_youtube(tool_context: ToolContext) -> dict[str, Any]:
-    """Upload the rendered MP4 to YouTube as a public video."""
+    """Upload the rendered MP4 to YouTube.
+
+    Privacy is decided by the publication gate, not hardcoded. A story that
+    cleared verification publishes publicly; one the gate flagged uploads unlisted
+    so the run still produces a reviewable artifact without putting unverified
+    claims in front of an audience. The caller signals this by setting
+    `publish_privacy` in state.
+    """
     script = tool_context.state.get("script")
     mp4_path = tool_context.state.get("mp4_path")
     if not script or not mp4_path:
@@ -468,13 +475,19 @@ def publish_to_youtube(tool_context: ToolContext) -> dict[str, Any]:
     if not mp4.exists():
         return {"success": False, "error": f"MP4 not found: {mp4_path}"}
 
+    privacy = tool_context.state.get("publish_privacy") or "public"
+    if privacy not in {"public", "unlisted", "private"}:
+        privacy = "public"
+    if privacy != "public":
+        runtime.log(f"[publish] uploading as {privacy} (publication gate was not satisfied)")
+
     cmd = [
         get_python_exec(), str(AGENTS_DIR / "publisher" / "youtube.py"),
         "upload", str(mp4),
         "--title", (script.get("hook", "AI News Update") or "AI News Update")[:100],
         "--description", (script.get("body", "") or "")[:5000],
         "--tags", "ai,tech,news,agents",
-        "--privacy", "public",
+        "--privacy", privacy,
     ]
     result = run_script(
         cmd, cwd=str(AGENTS_DIR), timeout=120, step_label=f"publish-{story_id[:8]}"
@@ -488,13 +501,17 @@ def publish_to_youtube(tool_context: ToolContext) -> dict[str, Any]:
 
     if video_id:
         tool_context.state["video_id"] = video_id
-        runtime.activity("publish", "complete", f"Published to youtube.com/watch?v={video_id}")
+        suffix = "" if privacy == "public" else f" ({privacy})"
+        runtime.activity(
+            "publish", "complete", f"Published to youtube.com/watch?v={video_id}{suffix}"
+        )
     else:
         runtime.activity("publish", "failed", f"Upload exit {result.returncode}")
 
     return {
         "success": bool(video_id),
         "video_id": video_id,
+        "privacy": privacy,
         "story_id": story_id,
     }
 

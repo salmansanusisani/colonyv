@@ -62,7 +62,15 @@ OUTRO_BEAT = "__outro__"
 BRAND_LOGO_SOURCE = PROJECT_ROOT / "icon_logo.png"
 BRAND_LOGO_PUBLIC = "brand/logo_mark.png"
 
-DEFAULT_ILLUSTRATION_BUDGET = int(os.environ.get("COLONYV_ILLUSTRATION_BUDGET", "4"))
+# -1 means "scale to the story". An explicit value, from the flag or the
+# environment, always wins.
+AUTO_ILLUSTRATION_BUDGET = -1
+DEFAULT_ILLUSTRATION_BUDGET = int(
+    os.environ.get("COLONYV_ILLUSTRATION_BUDGET", str(AUTO_ILLUSTRATION_BUDGET))
+)
+# Ceiling on auto-scaled budgets, so a long script cannot quietly run up a bill.
+MAX_AUTO_ILLUSTRATIONS = 6
+MIN_AUTO_ILLUSTRATIONS = 2
 CHANNEL_HANDLE = os.environ.get("COLONYV_CHANNEL_HANDLE", "@colonyv")
 
 
@@ -337,6 +345,23 @@ def build_sfx(sfx_dir: Path) -> None:
 # Art direction
 # ---------------------------------------------------------------------------
 
+def resolve_illustration_budget(requested: int, beat_count: int) -> int:
+    """Decide how many illustrations this video may generate.
+
+    A flat budget is wrong in both directions: a three-shot video never spends it,
+    while a seven-shot video is starved and ends up mostly typographic. Scaling to
+    the number of shots that could actually carry art keeps spend proportional to
+    the story.
+
+    The outro is excluded because the brand layout has no illustration slot.
+    """
+    if requested >= 0:
+        return requested
+    art_candidates = max(1, beat_count + 1)  # body beats, plus the hook
+    scaled = round(art_candidates * 0.8)
+    return max(MIN_AUTO_ILLUSTRATIONS, min(MAX_AUTO_ILLUSTRATIONS, scaled))
+
+
 def _load_plan(path: Path) -> dict[str, Any] | None:
     try:
         with open(path) as f:
@@ -522,6 +547,9 @@ async def build_video(
 
     # --- 3. Art direction -------------------------------------------------
     print("[3/6] Art direction...")
+    budget = resolve_illustration_budget(illustration_budget, len(beats))
+    if illustration_budget < 0:
+        print(f"  illustration budget: {budget} (scaled to {len(beats)} body beats)")
     research: dict[str, Any] = {}
     if research_path:
         try:
@@ -534,7 +562,7 @@ async def build_video(
         script_data,
         research,
         plan_path=Path(visual_plan_path) if visual_plan_path else None,
-        illustration_budget=illustration_budget,
+        illustration_budget=budget,
     )
     palette = plan.get("palette", {})
     print(f"  concept: {plan.get('concept', '')[:100]}")
@@ -546,7 +574,7 @@ async def build_video(
     from illustrate import illustrate_plan
 
     art_summary = illustrate_plan(
-        plan, illo_dir, budget=illustration_budget, use_cache=not no_cache
+        plan, illo_dir, budget=budget, use_cache=not no_cache
     )
     (render_dir / "art_manifest.json").write_text(json.dumps(art_summary, indent=2))
     (render_dir / "visual_plan.resolved.json").write_text(json.dumps(plan, indent=2))
@@ -644,7 +672,10 @@ def main() -> None:
         "--illustrations",
         type=int,
         default=DEFAULT_ILLUSTRATION_BUDGET,
-        help="Maximum generated illustrations for this video (cost control)",
+        help=(
+            "Maximum generated illustrations for this video (cost control). "
+            "Omit, or pass -1, to scale the budget to the number of shots."
+        ),
     )
     parser.add_argument("--no-cache", action="store_true", help="Bypass the illustration cache")
     # Accepted for backwards compatibility with the legacy ScenePlanner flag.
@@ -689,7 +720,7 @@ async def _run(args: argparse.Namespace) -> None:
         args.output,
         visual_plan_path=args.visual_plan,
         research_path=args.research_json,
-        illustration_budget=max(0, args.illustrations),
+        illustration_budget=args.illustrations,
         no_cache=args.no_cache,
     )
 

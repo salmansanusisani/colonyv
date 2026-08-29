@@ -164,3 +164,26 @@ def test_fade_edges_zeroes_the_boundaries():
     assert out[-1] == 0.0
     # The middle is untouched.
     assert out[len(out) // 2] == 1.0
+
+
+# --------------------------------------------------------------------------
+# Illustration budget scaling
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "beats,expected",
+    [(1, 2), (2, 2), (3, 3), (4, 4), (5, 5), (7, 6), (12, 6)],
+)
+def test_auto_budget_scales_with_beat_count(beats, expected):
+    """A flat budget starves long videos and wastes spend on short ones."""
+    assert build_video.resolve_illustration_budget(-1, beats) == expected
+
+
+def test_auto_budget_is_bounded():
+    assert build_video.resolve_illustration_budget(-1, 0) >= build_video.MIN_AUTO_ILLUSTRATIONS
+    assert build_video.resolve_illustration_budget(-1, 99) == build_video.MAX_AUTO_ILLUSTRATIONS
+
+
+@pytest.mark.parametrize("explicit", [0, 1, 3, 8])
+def test_explicit_budget_always_wins(explicit):
+    assert build_video.resolve_illustration_budget(explicit, 5) == explicit

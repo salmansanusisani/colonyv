@@ -165,7 +165,15 @@ def run_stage(
                 runtime.log(f"[publish] verification exhausted; escalating to next candidate {fallback_next}")
                 return {"stage": stage, "decision": "escalate", "reason": pg["reason"],
                         "next": fallback_next, "state": state}
-            runtime.log("[publish] all candidates exhausted; publishing best available anyway")
+            # Every candidate has been exhausted. Still produce a video, but
+            # unlisted: the gate's verdict stands even when there is nothing left
+            # to fall back to.
+            runtime.log(
+                "[publish] all candidates exhausted; uploading best available as unlisted"
+            )
+            ctx.state["publish_privacy"] = "unlisted"
+        else:
+            ctx.state["publish_privacy"] = "public"
         upload = publish_to_youtube(ctx)
         if upload.get("skipped"):
             return {"stage": stage, "decision": "skipped",
