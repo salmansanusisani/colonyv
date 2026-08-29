@@ -334,6 +334,8 @@ Then navigate to **`http://localhost:8000`** in your browser.
 | `COLONYV_PUBLISH_TIMEOUT` | No | YouTube upload timeout in seconds (default `600`) |
 | `COLONYV_TTS_ATTEMPTS` | No | Narration retry attempts before failing a video (default `3`) |
 | `COLONYV_PUBSUB_TOKEN` | No | Bearer token required by the Pub/Sub stage webhook |
+| `COLONYV_BACKGROUND_AUDIO` | No | Path to the background music bed looped under every render (default `background_sound.mp3` at the repo root) |
+| `COLONYV_BACKGROUND_VOLUME` | No | Background mix level, 0–1, relative to full-level narration (default `0.13`) |
 
 ## Dashboard Configuration
 
