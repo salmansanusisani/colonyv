@@ -1,0 +1,205 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VisualPlan",
+  "description": "Output from the Art Director Agent. A per-story art-direction document that drives the Remotion compositional engine. Unlike the legacy ScenePlan (which only picked one of six fixed templates), a VisualPlan authors the palette, the illustration style contract, and a per-beat shot list of composable layers, so every video is structurally unique.",
+  "type": "object",
+  "required": ["concept", "palette", "illustration_style", "shots"],
+  "properties": {
+    "concept": {
+      "type": "string",
+      "maxLength": 240,
+      "description": "One-sentence visual concept for this story. The through-line every shot serves."
+    },
+    "palette": {
+      "type": "object",
+      "required": ["accent", "accent_role"],
+      "description": "Brand-anchored palette. Ground and ink stay near-constant for channel identity; accent carries story meaning.",
+      "properties": {
+        "ground": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Paper background. Defaults to the brand paper white."
+        },
+        "ink": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Primary linework and typography colour. Defaults to brand near-black."
+        },
+        "accent": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "The single semantic accent for this story."
+        },
+        "accent_role": {
+          "type": "string",
+          "enum": ["verified", "alert", "neutral", "topic"],
+          "description": "Why this accent was chosen. verified=confirmed/positive (green), alert=failure/risk (red), neutral=colour is not meaningful (mono), topic=the subject owns a hue."
+        },
+        "accent_rationale": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Why the director chose this accent for this story."
+        }
+      }
+    },
+    "illustration_style": {
+      "type": "string",
+      "maxLength": 900,
+      "description": "The style contract appended to every illustration prompt in this video. Load-bearing for visual coherence across shots."
+    },
+    "motion_language": {
+      "type": "string",
+      "enum": ["precise", "energetic", "calm", "urgent"],
+      "default": "precise",
+      "description": "Governs spring stiffness, stagger cadence, and transition character across the whole video."
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered shot list. One shot per narration unit, including the hook and the outro.",
+      "items": {
+        "type": "object",
+        "required": ["beat_name", "layout"],
+        "properties": {
+          "beat_name": {
+            "type": "string",
+            "description": "The narration unit this shot renders: '__hook__', '__outro__', or a scriptwriter beat name."
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "hero_statement",
+              "illustration_full",
+              "illustration_top",
+              "illustration_side",
+              "data_readout",
+              "node_flow",
+              "timeline_rail",
+              "compare_two_up",
+              "quote_block",
+              "outro_brand"
+            ],
+            "description": "Which composition to build from the layer library."
+          },
+          "headline": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Short on-screen text. Not a full sentence. Never the whole narration."
+          },
+          "kicker": {
+            "type": "string",
+            "maxLength": 28,
+            "description": "Optional small eyebrow label above the headline. Director-authored, never hardcoded."
+          },
+          "emphasis_words": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 4,
+            "description": "Words inside the headline to render in the accent colour."
+          },
+          "type_scale": {
+            "type": "string",
+            "enum": ["xl", "lg", "md", "sm"],
+            "default": "lg",
+            "description": "Headline size band."
+          },
+          "text_anchor": {
+            "type": "string",
+            "enum": ["top", "center", "bottom"],
+            "default": "top",
+            "description": "Where the text block sits, so it never collides with the illustration."
+          },
+          "illustration": {
+            "type": "object",
+            "description": "Present when this shot should carry a generated illustration.",
+            "required": ["prompt"],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "maxLength": 700,
+                "description": "SUBJECT and COMPOSITION for this shot. The style contract is appended automatically. Must describe a concrete visual metaphor, never text."
+              },
+              "priority": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "default": 3,
+                "description": "1 is highest. Used to spend a limited illustration budget on the shots that earn it."
+              },
+              "motion": {
+                "type": "string",
+                "enum": ["still", "drift", "push_in", "pull_out", "parallax"],
+                "default": "push_in",
+                "description": "Camera treatment applied to the illustration plate."
+              }
+            }
+          },
+          "data": {
+            "type": "object",
+            "description": "Present for data_readout layouts. Figures must come verbatim from the narration.",
+            "properties": {
+              "value": {"type": "string", "maxLength": 24, "description": "The figure exactly as spoken, e.g. '84,000'."},
+              "prefix": {"type": "string", "maxLength": 4, "description": "Leading symbol, e.g. '$'."},
+              "suffix": {"type": "string", "maxLength": 12, "description": "Trailing unit, e.g. '%', 'billion'."},
+              "label": {"type": "string", "maxLength": 60, "description": "What the figure measures."},
+              "trend": {"type": "string", "enum": ["up", "down", "flat"], "description": "Optional direction indicator."}
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "maxItems": 4,
+            "description": "Present for node_flow and compare_two_up. Director-authored labels, never a word-count split of the narration.",
+            "items": {
+              "type": "object",
+              "required": ["label"],
+              "properties": {
+                "label": {"type": "string", "maxLength": 48},
+                "detail": {"type": "string", "maxLength": 64},
+                "state": {"type": "string", "enum": ["neutral", "good", "bad"], "default": "neutral"}
+              }
+            }
+          },
+          "events": {
+            "type": "array",
+            "maxItems": 4,
+            "description": "Present for timeline_rail.",
+            "items": {
+              "type": "object",
+              "required": ["label"],
+              "properties": {
+                "label": {"type": "string", "maxLength": 48},
+                "marker": {"type": "string", "maxLength": 16, "description": "Date or step marker."},
+                "state": {"type": "string", "enum": ["neutral", "good", "bad"], "default": "neutral"}
+              }
+            }
+          },
+          "annotations": {
+            "type": "array",
+            "maxItems": 3,
+            "description": "Optional callout notes drawn with a leader line over the illustration.",
+            "items": {
+              "type": "object",
+              "required": ["text"],
+              "properties": {
+                "text": {"type": "string", "maxLength": 40},
+                "at": {
+                  "type": "string",
+                  "enum": ["top_left", "top_right", "mid_left", "mid_right", "bottom_left", "bottom_right"],
+                  "default": "mid_right"
+                },
+                "state": {"type": "string", "enum": ["neutral", "good", "bad"], "default": "neutral"}
+              }
+            }
+          },
+          "transition_in": {
+            "type": "string",
+            "enum": ["cut", "dot_wipe", "rule_wipe", "slide", "fade"],
+            "default": "rule_wipe",
+            "description": "How this shot enters from the previous one."
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

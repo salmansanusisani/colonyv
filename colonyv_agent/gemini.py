@@ -41,13 +41,27 @@ def client() -> genai.Client:
     return _cached_client
 
 
-def generate_json(prompt: str, retries: int = 3) -> dict[str, Any] | list[Any] | None:
+def generate_json(
+    prompt: str,
+    retries: int = 3,
+    temperature: float = 0.4,
+) -> dict[str, Any] | list[Any] | None:
+    """Generate a JSON response from Gemini.
+
+    temperature is exposed because the agents have genuinely different needs:
+    research and scriptwriting want low variance for factual stability, while
+    art direction wants high variance so consecutive videos do not converge on
+    the same look.
+    """
     for attempt in range(retries):
         try:
             response = client().models.generate_content(
                 model=MODEL,
                 contents=prompt,
-                config={"temperature": 0.4, "response_mime_type": "application/json"},
+                config={
+                    "temperature": temperature,
+                    "response_mime_type": "application/json",
+                },
             )
             text = (response.text or "").strip()
             text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text).strip()

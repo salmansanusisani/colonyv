@@ -1,712 +1,205 @@
 import React from "react";
-import {
-  AbsoluteFill,
-  Audio,
-  Img,
-  Sequence,
-  interpolate,
-  spring,
-  staticFile,
-  useCurrentFrame,
-  useVideoConfig,
-} from "remotion";
-import timing from "./timing.json";
-import { theme } from "./theme";
+import { AbsoluteFill, Audio, Sequence, staticFile } from "remotion";
+import { loadFont as loadDisplay } from "@remotion/google-fonts/Archivo";
+import { loadFont as loadMono } from "@remotion/google-fonts/IBMPlexMono";
+import { palette, semantic } from "./theme";
+import { HOOK_BEAT, OUTRO_BEAT } from "./types";
+import type { Shot, Timing, VideoProps, VisualPlan } from "./types";
+import { ShotComposition } from "./layouts";
+import { Transition } from "./layers/Transition";
 
-const { hookFrames, outroFrames, beats } = timing as {
-  hookFrames: number;
-  outroFrames: number;
-  beats: Record<string, number>;
-};
+// Fonts are loaded at module scope so Remotion registers the pending handles
+// before the first frame is rasterised. Without this the first shots render in
+// the fallback face and the video visibly re-flows.
+//
+// Weights and subsets are pinned deliberately. Loading the full families issued
+// ~186 font requests per Chromium tab, which slowed every render and made the
+// job depend on outbound network access at render time.
+loadDisplay("normal", {
+  weights: ["700", "800"],
+  subsets: ["latin"],
+  ignoreTooManyRequestsWarning: true,
+});
+loadMono("normal", {
+  weights: ["500", "600"],
+  subsets: ["latin"],
+  ignoreTooManyRequestsWarning: true,
+});
 
-type Beat = {
-  name: string;
-  narration_text: string;
-  beat_type?: string;
-  image_url?: string;
-  asset_source_url?: string;
-  asset_available?: boolean;
-  image_treatment?: string;
-  visual_style?: "editorial" | "image_led" | "stat_led" | "diagram" | "timeline" | "quiet";
-  beat_scene_stat?: string;
-  beat_scene_headline?: string;
-};
+const DEFAULT_TIMING: Timing = { hookFrames: 60, outroFrames: 60, beats: {} };
 
-type ParsedStat = {
-  prefix: string;
-  numVal: number;
-  suffix: string;
-  narrationRemainder: string;
-};
-
-const STAT_RE = /(\$)?(\d+[\d,.]*)(\s*(?:million|billion|trillion|k|M|B|%|x|×))?/gi;
-
-const parseStatValue = (beat: Beat, stat?: string): ParsedStat | null => {
-  const parseExplicit = (raw: string, narration: string): ParsedStat | null => {
-    const m = raw.match(/^(\D*?)([0-9][\d,.]*)(.*)$/);
-    if (!m) return null;
-    const numVal = parseFloat(m[2].replace(/,/g, ""));
-    if (Number.isNaN(numVal)) return null;
-    const unit = (m[3] || "").trim().toLowerCase().match(/^(million|billion|trillion|k|m|b|%|x|×)$/);
-    return {
-      prefix: m[1] || "",
-      numVal,
-      suffix: unit ? (m[3] || "").trim() : "",
-      narrationRemainder: narration.replace(raw, "").trim(),
-    };
-  };
-
-  if (stat && stat.trim()) {
-    const parsed = parseExplicit(stat.trim(), beat.narration_text || "");
-    if (parsed) return parsed;
+/**
+ * Resolve the accent colour.
+ *
+ * Semantic roles own their hue so the channel keeps a consistent visual grammar:
+ * green always means confirmed, red always means failure. `topic` lets the
+ * director introduce a subject-specific hue, and `neutral` stays monochrome.
+ *
+ * This replaces the previous approach, which regex-matched keywords in the
+ * narration ("nvidia" -> emerald, "bitcoin" -> orange). That was a lookup table
+ * masquerading as a decision and meant the colour carried no information.
+ */
+const resolveAccent = (plan: VisualPlan | undefined): string => {
+  const p = plan?.palette;
+  if (!p) return semantic.neutral;
+  switch (p.accent_role) {
+    case "verified":
+      return semantic.verified;
+    case "alert":
+      return semantic.alert;
+    case "neutral":
+      return semantic.neutral;
+    case "topic":
+    default:
+      return p.accent && /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : semantic.neutral;
   }
-
-  const narration = beat.narration_text || "";
-  let best: ParsedStat | null = null;
-  for (const m of narration.matchAll(STAT_RE)) {
-    const prefix = m[1] || "";
-    const rawDigit = m[2] || "";
-    const suffix = (m[3] || "").trim();
-    const numVal = parseFloat(rawDigit.replace(/,/g, ""));
-    if (Number.isNaN(numVal)) continue;
-    const digits = rawDigit.replace(/[,.]/g, "");
-    const isBareYear = !prefix && !suffix && /^\d{4}$/.test(digits) && numVal >= 1900 && numVal <= 2999;
-    if (isBareYear) continue;
-    best = { prefix, numVal, suffix, narrationRemainder: narration.replace(m[0], "").trim() };
-    if (prefix === "$") break;
-  }
-  return best;
 };
 
-interface VideoProps {
-  script: {
-    hook: string;
-    body: string;
-    cta: string;
-    format?: string;
-    accent_color?: string;
-    suggested_visual_beats: Beat[];
-  };
-  timing?: {
-    hookFrames: number;
-    outroFrames: number;
-    beats: Record<string, number>;
-  };
+/**
+ * Build the render timeline.
+ *
+ * Audio and visuals are bound by the same ordered list, so a shot can never
+ * drift away from its narration. The previous implementation indexed audio by
+ * position (`beat_01.mp3`) while matching scenes by name, which desynchronised
+ * whenever the two orderings disagreed.
+ */
+interface TimelineEntry {
+  key: string;
+  from: number;
+  duration: number;
+  shot: Shot;
+  audio: string;
 }
 
-const accentFor = (text: string) => {
-  const value = (text || "").toLowerCase();
-  if (/nvidia|jensen|gpu|blackwell|hardware|chip/.test(value)) return "#10B981"; // Emerald
-  if (/anthropic|claude|startup|model/.test(value)) return "#F59E0B"; // Amber
-  if (/gemini|google|deepmind/.test(value)) return "#3B82F6"; // Royal Blue
-  if (/bitcoin|crypto|ethereum|blockchain/.test(value)) return "#F97316"; // Bright Orange
-  if (/openai|gpt|altman/.test(value)) return "#06B6D4"; // Cyan
-  if (/warning|risk|loss|ban|crisis|hack/.test(value)) return "#EF4444"; // Red
-  return "#8B5CF6"; // Vibrant Violet default
+const buildTimeline = (
+  timing: Timing,
+  plan: VisualPlan | undefined,
+  script: VideoProps["script"],
+): { entries: TimelineEntry[]; total: number } => {
+  const beatNames = Object.keys(timing.beats ?? {});
+  const shots = plan?.shots ?? [];
+
+  const shotFor = (name: string, fallbackIndex: number): Shot => {
+    const exact = shots.find((s) => s.beat_name === name);
+    if (exact) return exact;
+    const positional = shots[fallbackIndex];
+    if (positional) return positional;
+    return { beat_name: name, layout: "hero_statement" };
+  };
+
+  const entries: TimelineEntry[] = [];
+  let cursor = 0;
+
+  // Hook.
+  const hookShot = shotFor(HOOK_BEAT, 0);
+  entries.push({
+    key: HOOK_BEAT,
+    from: cursor,
+    duration: timing.hookFrames,
+    audio: "audio/01_hook.mp3",
+    shot: {
+      ...hookShot,
+      headline: hookShot.headline || script?.hook || "",
+    },
+  });
+  cursor += timing.hookFrames;
+
+  // Body beats, in the exact order the producer measured audio for.
+  beatNames.forEach((name, i) => {
+    const duration = timing.beats[name] ?? 90;
+    const shot = shotFor(name, i + 1);
+    const narration = script?.suggested_visual_beats?.find((b) => b.name === name)?.narration_text;
+    entries.push({
+      key: name,
+      from: cursor,
+      duration,
+      audio: `audio/beat_${String(i + 1).padStart(2, "0")}.mp3`,
+      shot: {
+        ...shot,
+        // Fall back to narration only if the director gave no on-screen copy.
+        headline: shot.headline || narration || "",
+      },
+    });
+    cursor += duration;
+  });
+
+  // Outro.
+  const outroShot = shotFor(OUTRO_BEAT, beatNames.length + 1);
+  entries.push({
+    key: OUTRO_BEAT,
+    from: cursor,
+    duration: timing.outroFrames,
+    audio: "audio/03_cta.mp3",
+    shot: {
+      ...outroShot,
+      layout: "outro_brand",
+      headline: outroShot.headline || script?.cta || "",
+    },
+  });
+  cursor += timing.outroFrames;
+
+  return { entries, total: cursor };
 };
 
-// --- Component 1: Multi-Property Spring Entrance (Rule 2) ---
-const Entrance: React.FC<{ delay?: number; distance?: number; children: React.ReactNode; style?: React.CSSProperties }> = ({
-  delay = 0,
-  distance = 35,
-  children,
-  style,
-}) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const p = Math.max(0, spring({ frame: frame - delay, fps, config: theme.spring.smooth }));
-  return (
-    <div
-      style={{
-        opacity: Math.min(1, p),
-        transform: `translateY(${interpolate(p, [0, 1], [distance, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px) scale(${interpolate(p, [0, 1], [0.94, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })})`,
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  );
-};
+export const ContentVideo: React.FC<VideoProps> = ({ script, timing, visualPlan, brand }) => {
+  const runTiming: Timing = {
+    hookFrames: timing?.hookFrames ?? DEFAULT_TIMING.hookFrames,
+    outroFrames: timing?.outroFrames ?? DEFAULT_TIMING.outroFrames,
+    beats: timing?.beats ?? DEFAULT_TIMING.beats,
+  };
 
-// --- Component 2: Background Mesh (Rule 5 & 7: Never Flat) ---
-const BgMesh: React.FC<{ accent: string; progress?: number; chrome?: boolean }> = ({ accent, progress = 0, chrome = false }) => {
-  const frame = useCurrentFrame();
-  const d1 = Math.sin(frame / 60) * 45;
-  const d2 = Math.cos(frame / 75) * 40;
+  const accent = resolveAccent(visualPlan);
+  const motionKey = visualPlan?.motion_language ?? "precise";
+  const { entries, total } = buildTimeline(runTiming, visualPlan, script);
+
+  // The footer labels the document. The script's format string ("stat-heavy
+  // explainer") is the most useful short descriptor the pipeline already has.
+  const docLabel = script?.format || "Editorial brief";
+  // Body shots only; the hook and outro are not numbered sheets.
+  const sheetTotal = Math.max(1, entries.length - 2);
 
   return (
-    <AbsoluteFill style={{ background: theme.colors.bg, overflow: "hidden" }}>
-      {/* Subtle Grid Grid Pattern */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
-          backgroundSize: "80px 80px",
-          opacity: 0.6,
-        }}
-      />
-      {/* Drifting Radial Glowing Orbs - High Performance Pure CSS Gradients (0% Chromium Crash) */}
-      <div
-        style={{
-          position: "absolute",
-          width: 900,
-          height: 900,
-          borderRadius: "50%",
-          top: -250,
-          left: -200 + d1,
-          background: `radial-gradient(circle, ${accent}2e 0%, ${accent}14 42%, transparent 70%)`,
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          width: 800,
-          height: 800,
-          borderRadius: "50%",
-          bottom: -200,
-          right: -200 - d2,
-          background: `radial-gradient(circle, ${accent}22 0%, ${accent}0d 45%, transparent 70%)`,
-        }}
-      />
-
-      {chrome && (
-        <>
-          <div style={{ position: "absolute", left: 60, right: 60, top: 60, height: 4, borderRadius: 4, background: "rgba(255,255,255,0.1)" }}>
-            <div style={{ height: "100%", width: `${Math.max(4, progress * 100)}%`, background: accent, borderRadius: 4 }} />
-          </div>
-          <div style={{ position: "absolute", left: 60, top: 86, display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: "50%", background: accent }} />
-            <span style={{ fontFamily: theme.fonts.display, fontWeight: 800, fontSize: 18, letterSpacing: 3, color: theme.colors.text }}>COLONY V</span>
-          </div>
-          <div style={{ position: "absolute", right: 60, top: 86, fontFamily: theme.fonts.display, fontWeight: 600, fontSize: 14, letterSpacing: 2, color: theme.colors.textMuted }}>
-            AI INTELLIGENCE
-          </div>
-        </>
-      )}
-    </AbsoluteFill>
-  );
-};
-
-// --- Component 3: Radial Spark / Logo Mark (Pattern 10) ---
-const RadialSpark: React.FC<{ size?: number; accent: string; delay?: number }> = ({ size = 200, accent, delay = 0 }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const rays = 12;
-  const rot = interpolate(frame, [0, 180], [0, 90], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-
-  return (
-    <div style={{ position: "relative", width: size, height: size, transform: `rotate(${rot}deg)` }}>
-      {Array.from({ length: rays }).map((_, i) => {
-        const p = Math.max(0, spring({ frame: frame - delay - i * 1.5, fps, config: theme.spring.snappy }));
-        return (
-          <div
-            key={i}
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              width: size * 0.04,
-              height: Math.max(0, size * 0.42 * p),
-              background: accent,
-              borderRadius: size,
-              transformOrigin: "50% 0%",
-              transform: `translateX(-50%) rotate(${(360 / rays) * i}deg) translateY(${size * 0.08}px)`,
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-};
-
-const slugify = (name: string) => (name || "").replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "beat";
-
-// --- Component 4: Editorial Card with Ken Burns Zoom & Pan (Rule 6) ---
-const SubjectImage: React.FC<{ name: string; duration: number; available?: boolean; accent: string }> = ({ name, duration, available = true, accent }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  if (!available) return null;
-
-  const reveal = Math.max(0, Math.min(1, spring({ frame: frame - 6, fps, config: theme.spring.smooth })));
-  const scale = interpolate(frame, [0, duration], [1.0, 1.08], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const pan = interpolate(frame, [0, duration], [0, -20], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const breathe = Math.sin(frame / 60) * 6;
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        top: 280,
-        right: 60,
-        width: 440,
-        height: 640,
-        borderRadius: 28,
-        overflow: "hidden",
-        border: `1px solid ${theme.colors.bgCardBorder}`,
-        background: theme.colors.bgCard,
-        boxShadow: `0 16px 40px rgba(0,0,0,0.5)`,
-        opacity: reveal,
-        transform: `translateY(${(1 - reveal) * 40 + breathe}px) scale(${0.92 + reveal * 0.08})`,
-      }}
-    >
-      <Img
-        src={staticFile(`images/${slugify(name)}.png`)}
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          transform: `scale(${scale}) translateX(${pan}px)`,
-        }}
-      />
-      {/* Inner Vignette / Grade */}
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 60%, rgba(10,10,15,0.8) 100%)" }} />
-      <div style={{ position: "absolute", bottom: 18, left: 18, right: 18, display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent }} />
-        <span style={{ fontFamily: theme.fonts.display, fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: 1.5, textTransform: "uppercase" }}>Verified Source</span>
-      </div>
-    </div>
-  );
-};
-
-// --- Component 5: Animated Number Counter (Pattern 9) ---
-const AnimatedCounter: React.FC<{ target: number; prefix?: string; suffix?: string; accent: string; delay?: number }> = ({
-  target,
-  prefix = "",
-  suffix = "",
-  accent,
-  delay = 6,
-}) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const p = Math.max(0, Math.min(1, spring({ frame: frame - delay, fps, config: { damping: 24, stiffness: 80 } })));
-  const current = interpolate(p, [0, 1], [0, target], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const fontSize = target >= 10000 ? 84 : 110;
-
-  return (
-    <div style={{ fontFamily: theme.fonts.display, fontSize, fontWeight: 900, color: theme.colors.text, lineHeight: 1 }}>
-      <span style={{ color: accent }}>{prefix}</span>
-      <span>{target % 1 === 0 ? Math.round(current).toLocaleString("en-US") : current.toFixed(1)}</span>
-      <span style={{ color: accent, fontSize: Math.round(fontSize * 0.65), marginLeft: 8 }}>{suffix}</span>
-    </div>
-  );
-};
-
-// --- Component 6: Kinetic Hook Scene ---
-const HookScene: React.FC<{ text: string; duration: number; accent: string }> = ({ text, duration, accent }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const words = text.split(" ");
-  const exit = interpolate(frame, [Math.max(0, duration - 10), duration], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-
-  return (
-    <AbsoluteFill style={{ opacity: exit }}>
-      <BgMesh accent={accent} chrome />
-      <Audio src={staticFile("audio/01_hook.mp3")} />
-
-      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        {/* Category Pill Tag */}
-        <Entrance delay={0} distance={20}>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "8px 18px",
-              background: `${accent}22`,
-              border: `1px solid ${accent}55`,
-              borderRadius: 30,
-              marginBottom: 36,
-            }}
+    <AbsoluteFill style={{ backgroundColor: palette.ground }}>
+      {entries.map((entry, i) => (
+        <Sequence
+          key={entry.key}
+          from={entry.from}
+          durationInFrames={entry.duration}
+          // Named layers make the Remotion Studio timeline readable, which
+          // matters when debugging a mis-timed shot.
+          name={`${entry.shot.layout} · ${entry.key}`}
+        >
+          <Audio src={staticFile(entry.audio)} />
+          <Transition
+            kind={entry.shot.transition_in}
+            accent={accent}
+            frames={Math.min(16, Math.max(6, Math.round(entry.duration * 0.12)))}
           >
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: accent }} />
-            <span style={{ fontFamily: theme.fonts.display, fontWeight: 800, fontSize: 15, letterSpacing: 2.5, color: accent }}>BREAKING SIGNAL</span>
-          </div>
-        </Entrance>
-
-        {/* Big Staggered Headline Reveal */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 20px", maxWidth: 960 }}>
-          {words.map((word, i) => {
-            const isHero = i >= words.length - 3;
-            const p = Math.max(0, Math.min(1, spring({ frame: frame - 6 - i * 2.5, fps, config: theme.spring.snappy })));
-            return (
-              <span
-                key={i}
-                style={{
-                  display: "inline-block",
-                  fontFamily: theme.fonts.display,
-                  fontSize: 72,
-                  fontWeight: 900,
-                  letterSpacing: -2.5,
-                  lineHeight: 1.05,
-                  color: isHero ? accent : theme.colors.text,
-                  opacity: p,
-                  transform: `translateY(${interpolate(p, [0, 1], [30, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px) scale(${interpolate(p, [0, 1], [0.92, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })})`,
-                }}
-              >
-                {word}
-              </span>
-            );
-          })}
-        </div>
-
-        {/* Glowing Progress Accent Bar */}
-        <div
-          style={{
-            marginTop: 48,
-            width: interpolate(frame, [8, 36], [0, 480], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }),
-            height: 4,
-            background: `linear-gradient(90deg, ${accent}, transparent)`,
-            borderRadius: 2,
-          }}
-        />
-      </div>
+            <ShotComposition
+              shot={entry.shot}
+              accent={accent}
+              duration={entry.duration}
+              motionKey={motionKey}
+              progress={total > 0 ? (entry.from + entry.duration / 2) / total : 0}
+              logo={brand?.logo}
+              brand={brand}
+              index={Math.max(1, Math.min(sheetTotal, i))}
+              total={sheetTotal}
+              docLabel={docLabel}
+            />
+          </Transition>
+        </Sequence>
+      ))}
     </AbsoluteFill>
   );
 };
 
-// --- Component 7: Kinetic Editorial Scene ---
-const KineticScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
-  beat,
-  duration,
-  accent,
-  index,
-  total,
-}) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const sentences = (beat.narration_text || "").split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
-  const active = Math.min(sentences.length - 1, Math.floor(frame / Math.max(1, duration / Math.max(1, sentences.length))));
-  const hasAsset = Boolean(beat.asset_available);
-
-  return (
-    <AbsoluteFill>
-      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
-      <SubjectImage name={beat.name} duration={duration} available={hasAsset} accent={accent} />
-
-      <div style={{ position: "absolute", left: 60, top: 280, width: hasAsset ? 480 : 960 }}>
-        <Entrance delay={0} distance={15}>
-          <div style={{ fontFamily: theme.fonts.display, color: accent, fontSize: 16, fontWeight: 800, letterSpacing: 2.5, marginBottom: 30, display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ width: 24, height: 2, background: accent }} />
-            <span>KEY TAKEAWAY</span>
-          </div>
-        </Entrance>
-
-        {sentences.map((sentence, i) => {
-          const isCurrent = i === active;
-          const p = Math.max(0, Math.min(1, spring({ frame: frame - i * 16, fps, config: theme.spring.smooth })));
-          return (
-            <div
-              key={sentence}
-              style={{
-                fontFamily: theme.fonts.display,
-                fontSize: isCurrent ? 44 : 32,
-                lineHeight: 1.25,
-                fontWeight: isCurrent ? 800 : 500,
-                color: isCurrent ? theme.colors.text : theme.colors.textMuted,
-                marginBottom: 28,
-                padding: "16px 20px",
-                borderRadius: 18,
-                background: isCurrent ? "rgba(255,255,255,0.04)" : "transparent",
-                border: isCurrent ? `1px solid ${accent}44` : "1px solid transparent",
-                opacity: p,
-                transform: `translateX(${interpolate(p, [0, 1], [-25, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px)`,
-                transition: "all 0.2s ease",
-              }}
-            >
-              {sentence}
-            </div>
-          );
-        })}
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-// --- Component 8: Stat / Data Scene (Pattern 9) ---
-const StatScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
-  beat,
-  duration,
-  accent,
-  index,
-  total,
-}) => {
-  const frame = useCurrentFrame();
-  const stat = parseStatValue(beat, beat.beat_scene_stat);
-  const headline = beat.beat_scene_headline || "";
-
-  return (
-    <AbsoluteFill>
-      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
-
-      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        <Entrance delay={0} distance={15}>
-          <div style={{ fontFamily: theme.fonts.display, fontSize: 16, fontWeight: 800, letterSpacing: 3, color: accent, marginBottom: 20 }}>
-            CRITICAL DATA POINT
-          </div>
-        </Entrance>
-
-        {stat && (
-          <Entrance delay={4} distance={30}>
-            <div style={{ background: theme.colors.bgCard, padding: "36px 44px", borderRadius: 32, border: `1px solid ${accent}44`, boxShadow: `0 16px 40px rgba(0,0,0,0.5)`, marginBottom: 36 }}>
-              <AnimatedCounter target={stat.numVal} prefix={stat.prefix} suffix={stat.suffix} accent={accent} delay={6} />
-            </div>
-          </Entrance>
-        )}
-
-        <Entrance delay={14} distance={25}>
-          <div style={{ fontFamily: theme.fonts.display, fontSize: 38, lineHeight: 1.35, fontWeight: 600, color: theme.colors.text, maxWidth: 900 }}>
-            {headline || stat?.narrationRemainder || beat.narration_text}
-          </div>
-        </Entrance>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-// --- Component 9: Diagram / Logic Flow Scene (Pattern 10 & 13) ---
-const DiagramScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
-  beat,
-  duration,
-  accent,
-  index,
-  total,
-}) => {
-  const frame = useCurrentFrame();
-  const words = (beat.narration_text || "").split(" ");
-  const mid = Math.max(1, Math.ceil(words.length / 2));
-  const boxA = words.slice(0, mid).join(" ") || "System Action";
-  const boxB = words.slice(mid).join(" ") || "Outcome";
-  const progressLine = interpolate(frame, [18, 48], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-
-  return (
-    <AbsoluteFill>
-      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
-
-      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        <Entrance delay={0} distance={15}>
-          <div style={{ fontFamily: theme.fonts.display, fontSize: 16, fontWeight: 800, letterSpacing: 3, color: accent, marginBottom: 36 }}>
-            SYSTEM FLOW & IMPACT
-          </div>
-        </Entrance>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 24, position: "relative" }}>
-          {/* Node 1 */}
-          <Entrance delay={4} distance={30}>
-            <div style={{ padding: "32px 36px", background: theme.colors.bgCard, borderRadius: 24, border: `1px solid rgba(255,255,255,0.08)`, display: "flex", alignItems: "center", gap: 20 }}>
-              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: theme.colors.textMuted }}>01</div>
-              <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 700, color: theme.colors.text, lineHeight: 1.3 }}>{boxA}</div>
-            </div>
-          </Entrance>
-
-          {/* Connection Line */}
-          <div style={{ height: 32, width: 3, background: `linear-gradient(180deg, ${accent}, transparent)`, marginLeft: 56, opacity: progressLine / 100 }} />
-
-          {/* Node 2 */}
-          <Entrance delay={20} distance={30}>
-            <div style={{ padding: "32px 36px", background: theme.colors.bgCard, borderRadius: 24, border: `2px solid ${accent}`, display: "flex", alignItems: "center", gap: 20 }}>
-              <div style={{ width: 44, height: 44, borderRadius: "50%", background: accent, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: "#fff" }}>02</div>
-              <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 800, color: accent, lineHeight: 1.3 }}>{boxB}</div>
-            </div>
-          </Entrance>
-        </div>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-// --- Component 10: Timeline Sequence Scene ---
-const TimelineScene: React.FC<{ beat: Beat; duration: number; accent: string; index: number; total: number }> = ({
-  beat,
-  duration,
-  accent,
-  index,
-  total,
-}) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const events = beat.narration_text.split(/\s*\|\s*|(?<=[.!?])\s+/).filter(Boolean).slice(0, 3);
-  const line = interpolate(
-    frame,
-    [Math.min(10, Math.max(0, duration - 1)), Math.max(1, duration * 0.6)],
-    [0, 100],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-  );
-
-  return (
-    <AbsoluteFill>
-      <BgMesh accent={accent} progress={(index + frame / duration) / total} chrome />
-      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        <Entrance delay={0} distance={15}>
-          <div style={{ fontFamily: theme.fonts.display, fontSize: 16, fontWeight: 800, letterSpacing: 3, color: accent, marginBottom: 40 }}>
-            ROADMAP & TIMELINE
-          </div>
-        </Entrance>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 32, position: "relative" }}>
-          <div style={{ position: "absolute", left: 19, top: 20, bottom: 20, width: 2, background: "rgba(255,255,255,0.08)" }}>
-            <div style={{ width: "100%", height: `${line}%`, background: accent }} />
-          </div>
-
-          {events.map((event, i) => {
-            const p = Math.max(0, Math.min(1, spring({ frame: frame - 8 - i * 14, fps, config: theme.spring.smooth })));
-            return (
-              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 28, paddingLeft: 8, opacity: p, transform: `translateY(${interpolate(p, [0, 1], [25, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}px)` }}>
-                <div style={{ width: 24, height: 24, borderRadius: "50%", background: i === 0 ? accent : theme.colors.bgCard, border: `2px solid ${accent}`, flexShrink: 0, marginTop: 4 }} />
-                <div style={{ fontFamily: theme.fonts.display, fontSize: 32, fontWeight: 650, lineHeight: 1.35, color: theme.colors.text }}>{event}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-// --- Component 11: Quiet High-Impact Scene ---
-const QuietScene: React.FC<{ beat: Beat; duration: number; accent: string }> = ({ beat, accent }) => {
-  return (
-    <AbsoluteFill>
-      <BgMesh accent={accent} chrome />
-      <div style={{ position: "absolute", inset: "0 70px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        <Entrance delay={0} distance={15}>
-          <div style={{ width: 80, height: 4, background: accent, borderRadius: 2, marginBottom: 40 }} />
-        </Entrance>
-        <Entrance delay={4} distance={30}>
-          <div style={{ fontFamily: theme.fonts.display, fontSize: 58, lineHeight: 1.2, fontWeight: 850, letterSpacing: -2, color: theme.colors.text }}>
-            {beat.narration_text}
-          </div>
-        </Entrance>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-// --- Component 12: Call to Action Outro Scene ---
-const OutroScene: React.FC<{ text: string; duration: number; accent: string }> = ({ text, duration, accent }) => {
-  const frame = useCurrentFrame();
-
-  return (
-    <AbsoluteFill>
-      <BgMesh accent={accent} chrome />
-      <Audio src={staticFile("audio/03_cta.mp3")} />
-
-      <div style={{ position: "absolute", inset: "0 60px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-        {/* Animated Radial Spark Background behind Logo */}
-        <div style={{ position: "absolute", top: "28%" }}>
-          <RadialSpark size={260} accent={accent} delay={2} />
-        </div>
-
-        {/* Brand Logo Avatar */}
-        <Entrance delay={2} distance={30}>
-          <div
-            style={{
-              width: 120,
-              height: 120,
-              borderRadius: "50%",
-              background: theme.colors.bgCard,
-              border: `2px solid ${accent}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: theme.fonts.display,
-              fontSize: 36,
-              fontWeight: 900,
-              color: "#fff",
-              boxShadow: `0 8px 24px rgba(0,0,0,0.5)`,
-              position: "relative",
-              zIndex: 2,
-            }}
-          >
-            CV
-          </div>
-        </Entrance>
-
-        <Entrance delay={8} distance={25}>
-          <div style={{ fontFamily: theme.fonts.display, fontSize: 50, lineHeight: 1.2, fontWeight: 850, color: theme.colors.text, maxWidth: 860, marginTop: 44 }}>
-            {text}
-          </div>
-        </Entrance>
-
-        {/* CTA Pill */}
-        <Entrance delay={16} distance={20}>
-          <div
-            style={{
-              marginTop: 36,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "14px 32px",
-              borderRadius: 40,
-              background: accent,
-              color: "#000",
-              fontFamily: theme.fonts.display,
-              fontSize: 18,
-              fontWeight: 900,
-              letterSpacing: 2,
-            }}
-          >
-            SUBSCRIBE FOR DAILY BREAKTHROUGHS
-          </div>
-        </Entrance>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-// --- Component 13: Clean Vignette Layer (Rule 5 & 7) ---
-const Vignette: React.FC = () => (
-  <AbsoluteFill style={{ pointerEvents: "none", background: "radial-gradient(circle at center, transparent 40%, rgba(10,10,15,0.3) 120%)" }} />
-);
-
-export const ContentVideo: React.FC<VideoProps> = ({ script, timing }) => {
-  const runBeats = timing?.beats || beats;
-  const runHookFrames = timing?.hookFrames ?? hookFrames;
-  const runOutroFrames = timing?.outroFrames ?? outroFrames;
-  const allText = `${script?.hook || ""} ${script?.body || ""}`;
-  const accent = script?.accent_color || accentFor(allText);
-  const beatKeys = Object.keys(runBeats || {});
-  const bodyFrames = Object.values(runBeats || {}).reduce((sum, value) => sum + value, 0);
-  const totalFrames = runHookFrames + bodyFrames + runOutroFrames;
-  let cursor = runHookFrames;
-
-  const visualBeats = script?.suggested_visual_beats || [];
-
-  return (
-    <AbsoluteFill style={{ background: theme.colors.bg }}>
-      <Sequence from={0} durationInFrames={runHookFrames}>
-        <HookScene text={script?.hook || ""} duration={runHookFrames} accent={accent} />
-      </Sequence>
-      {beatKeys.map((name, index) => {
-        const duration = (runBeats && runBeats[name]) || 90;
-        const from = cursor;
-        cursor += duration;
-        const beat = visualBeats.find((item) => item.name === name) || visualBeats[index] || { name, narration_text: "" };
-        const type = beat.beat_type || "kinetic_text";
-        const Scene =
-          beat.visual_style === "timeline"
-            ? TimelineScene
-            : beat.visual_style === "quiet"
-            ? QuietScene
-            : type === "stat_reveal" || beat.visual_style === "stat_led"
-            ? StatScene
-            : type === "diagram" || beat.visual_style === "diagram"
-            ? DiagramScene
-            : KineticScene;
-
-        return (
-          <Sequence key={name} from={from} durationInFrames={duration}>
-            <Audio src={staticFile(`audio/beat_${String(index + 1).padStart(2, "0")}.mp3`)} />
-            <Scene beat={beat} duration={duration} accent={accent} index={index} total={beatKeys.length} />
-          </Sequence>
-        );
-      })}
-      <Sequence from={totalFrames - runOutroFrames} durationInFrames={runOutroFrames}>
-        <OutroScene text={script?.cta || ""} duration={runOutroFrames} accent={accent} />
-      </Sequence>
-
-      {/* Topmost Cinematic Vignette Layer */}
-      <Vignette />
-    </AbsoluteFill>
-  );
+/** Exported so Root.tsx can derive composition duration from the same logic. */
+export const totalFramesFor = (
+  timing: Timing | undefined,
+  plan?: VisualPlan,
+  script?: VideoProps["script"],
+): number => {
+  if (!timing) return 180;
+  return buildTimeline(timing, plan, script).total;
 };
