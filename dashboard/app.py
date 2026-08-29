@@ -1578,8 +1578,20 @@ async def api_youtube_upload_secret(request: Request):
     return {"status": "ok", "message": "Credentials saved", "has_credentials": True}
 
 
+def _youtube_redirect_uri(request: Request):
+    """Public callback URL for this deployment.
+
+    On Cloud Run the app sees the request via the proxy, so scheme + host come
+    from the forwarded headers rather than the loopback the container receives.
+    Locally it resolves to http://localhost:<port>/api/youtube/callback.
+    """
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("host") or request.url.netloc
+    return f"{scheme}://{host}/api/youtube/callback"
+
+
 @app.post("/api/youtube/auth")
-async def api_youtube_auth():
+async def api_youtube_auth(request: Request):
     """Trigger YouTube OAuth flow (returns auth URL)."""
     secret_path = AGENTS_DIR / "publisher" / "client_secret.json"
     if not secret_path.exists():
@@ -1593,7 +1605,7 @@ async def api_youtube_auth():
         from google_auth_oauthlib.flow import InstalledAppFlow
 
         flow = InstalledAppFlow.from_client_secrets_file(str(secret_path), YOUTUBE_SCOPES)
-        flow.redirect_uri = "http://localhost:8000/api/youtube/callback"
+        flow.redirect_uri = _youtube_redirect_uri(request)
 
         auth_url, state = flow.authorization_url(
             access_type="offline",
@@ -1611,7 +1623,7 @@ async def api_youtube_auth():
 
 
 @app.get("/api/youtube/callback")
-async def api_youtube_callback(code: str = None, state: str = None):
+async def api_youtube_callback(request: Request, code: str = None, state: str = None):
     """OAuth callback from Google."""
     if not code:
         return HTMLResponse("<h1>Auth failed - no code received</h1>")
@@ -1629,7 +1641,7 @@ async def api_youtube_callback(code: str = None, state: str = None):
             if not secret_path.exists():
                 return HTMLResponse("<h1>Auth session expired and client_secret.json is missing.</h1>")
             flow = InstalledAppFlow.from_client_secrets_file(str(secret_path), YOUTUBE_SCOPES)
-            flow.redirect_uri = "http://localhost:8000/api/youtube/callback"
+            flow.redirect_uri = _youtube_redirect_uri(request)
 
         flow.fetch_token(code=code)
         creds = flow.credentials
