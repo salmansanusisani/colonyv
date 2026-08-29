@@ -29,10 +29,41 @@ API_SERVICE_NAME = "youtube"
 API_VERSION = "v3"
 
 
+def _materialize_credentials_from_env() -> None:
+    """Write credential files from env vars when the image ships without them.
+
+    The two credential files are dockerignored so they are never baked into the
+    image or committed. On Cloud Run the deploy injects them via env vars
+    (COLONYV_YOUTUBE_TOKEN / COLONYV_YOUTUBE_CLIENT_SECRET); once materialized,
+    the normal token-reuse + headless refresh path works without a browser.
+    """
+    token_json = os.environ.get("COLONYV_YOUTUBE_TOKEN")
+    if token_json and not TOKEN_PATH.exists():
+        try:
+            json.loads(token_json)
+        except ValueError:
+            print("COLONYV_YOUTUBE_TOKEN is not valid JSON; ignoring", file=sys.stderr)
+        else:
+            TOKEN_PATH.write_text(token_json)
+            print(f"Materialized token from env -> {TOKEN_PATH}")
+
+    client_json = os.environ.get("COLONYV_YOUTUBE_CLIENT_SECRET")
+    if client_json and not CLIENT_SECRET_PATH.exists():
+        try:
+            json.loads(client_json)
+        except ValueError:
+            print("COLONYV_YOUTUBE_CLIENT_SECRET is not valid JSON; ignoring", file=sys.stderr)
+        else:
+            CLIENT_SECRET_PATH.write_text(client_json)
+            print(f"Materialized client secret from env -> {CLIENT_SECRET_PATH}")
+
+
 def check_and_get_credentials(force_reauth: bool = False):
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
     from google_auth_oauthlib.flow import InstalledAppFlow
+
+    _materialize_credentials_from_env()
 
     print("Required scopes:")
     for s in REQUIRED_SCOPES:
@@ -40,6 +71,9 @@ def check_and_get_credentials(force_reauth: bool = False):
 
     existing_token_found = TOKEN_PATH.exists()
     print(f"\nExisting token found: {'YES' if existing_token_found else 'NO'}")
+    if not existing_token_found:
+        provided = os.environ.get("COLONYV_YOUTUBE_TOKEN")
+        print(f"Token injected via env: {'YES' if provided else 'NO'}")
 
     creds = None
     if existing_token_found:
@@ -92,6 +126,19 @@ def check_and_get_credentials(force_reauth: bool = False):
             print("  2. Create OAuth 2.0 Client ID (Desktop app)", file=sys.stderr)
             print("  3. Download JSON, save as agents/publisher/client_secret.json", file=sys.stderr)
             sys.exit(1)
+
+        if not sys.stdin.isatty():
+            # Never attempt the browser flow from a server: run_local_server would
+            # bind the wrong port, wait forever, and the run would hang instead of
+            # reporting the failure. On Cloud Run, re-authorize locally once and
+            # re-deploy with COLONYV_YOUTUBE_TOKEN set.
+            print(
+                "\nError: no usable token and no interactive terminal available.\n"
+                "  Run `python3 agents/publisher/youtube.py auth` locally to generate\n"
+                "  youtube_token.json, then deploy with COLONYV_YOUTUBE_TOKEN set.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
         flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET_PATH), REQUIRED_SCOPES)
         creds = flow.run_local_server(
