@@ -1701,6 +1701,7 @@ CONTROLS
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
             const response = await fetch(url, {...options, signal: controller.signal});
+            if (response.status === 401) { location.href = '/login'; throw new Error('Unauthorized'); }
             if (!response.ok) throw new Error(`${url} returned ${response.status}`);
             return await response.json();
         } finally {
@@ -1751,7 +1752,8 @@ CONTROLS
             logBox.scrollTop = logBox.scrollHeight;
         };
         ws.onopen = function() { wsRetries = 0; };
-        ws.onclose = function() {
+        ws.onclose = function(e) {
+            if (e && e.code === 4001) { location.href = '/login'; return; }
             const delay = Math.min(3000 * Math.pow(1.5, wsRetries), 30000);
             wsRetries++;
             setTimeout(connectWS, delay);

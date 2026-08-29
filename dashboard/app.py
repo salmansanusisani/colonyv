@@ -12,8 +12,11 @@ Provides:
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -28,7 +31,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -160,6 +163,206 @@ def save_settings() -> None:
 app = FastAPI(title="COLONY — Autonomous Media Orchestrator")
 app.mount("/static", StaticFiles(directory=str(DASHBOARD_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(DASHBOARD_DIR / "templates"))
+
+# --- Dashboard auth / login ------------------------------------------------
+# Personal access: only the owner logs in. Auth activates only when both
+# ADMIN_USERNAME and ADMIN_PASSWORD are set in the environment, so local
+# development stays frictionless while deployed instances can be locked down.
+#
+# The password is never stored or logged; a salted PBKDF2 hash is derived at
+# startup and verified with a constant-time compare. Login is rate-limited:
+# 10 failed attempts per client IP lock that IP out for 15 minutes.
+
+AUTH_USERNAME = os.environ.get("ADMIN_USERNAME", "").strip()
+AUTH_PASSWORD_HASH: str | None = None
+if AUTH_USERNAME and os.environ.get("ADMIN_PASSWORD"):
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", os.environ["ADMIN_PASSWORD"].encode(), salt.encode(), 120_000)
+    AUTH_PASSWORD_HASH = f"pbkdf2_sha256$120000${salt}${dk.hex()}"
+AUTH_ENABLED = AUTH_USERNAME != "" and AUTH_PASSWORD_HASH is not None
+
+SESSION_TTL_SECONDS = 24 * 3600
+SESSIONS: dict[str, float] = {}  # token -> expiry epoch
+LOGIN_ATTEMPTS: dict[str, tuple[int, float]] = {}  # ip -> (fails, lockout_until)
+MAX_LOGIN_ATTEMPTS = 10
+LOCKOUT_SECONDS = 900
+
+PUBLIC_PATHS = {
+    "/healthz",
+    "/icon_logo.png",
+    "/favicon.ico",
+    "/login",
+    "/api/login",
+    "/api/logout",
+    "/api/pubsub/run-stage",  # self-protected with its own bearer token
+    "/api/youtube/callback",  # oauth redirect leg from Google
+}
+
+
+def _auth_check_password(password: str) -> bool:
+    if not AUTH_PASSWORD_HASH:
+        return False
+    scheme, iterations, salt, hex_digest = AUTH_PASSWORD_HASH.split("$")
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), int(iterations))
+    return hmac.compare_digest(dk.hex(), hex_digest)
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or request.client.host
+    return request.client.host if request.client else "unknown"
+
+
+def _login_allowed(ip: str) -> tuple[bool, int]:
+    fails, until = LOGIN_ATTEMPTS.get(ip, (0, 0))
+    if until and time.time() < until:
+        return False, int(until - time.time())
+    return True, 0
+
+
+def _valid_session(request: Request) -> bool:
+    token = request.cookies.get("colonyv_session")
+    if not token or token not in SESSIONS:
+        return False
+    if SESSIONS[token] <= time.time():
+        SESSIONS.pop(token, None)
+        return False
+    return True
+
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>COLONY — Sign in</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+           background: radial-gradient(1200px 600px at 50% -10%, #16233f 0%, #07090e 55%);
+           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #e2e8f0; }
+    .card { width: 340px; background: #0f172a; border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 18px; padding: 36px 32px; box-shadow: 0 24px 60px rgba(0,0,0,0.5); }
+    .logo { font-size: 22px; font-weight: 700; letter-spacing: 4px; color: #ffffff; margin-bottom: 4px; }
+    .sub { color: #64748b; font-size: 13px; margin-bottom: 28px; }
+    label { display: block; font-size: 12px; color: #94a3b8; margin: 14px 0 6px; }
+    input { width: 100%; background: #0b1120; border: 1px solid rgba(255,255,255,0.1); color: #e2e8f0;
+            border-radius: 10px; padding: 12px 14px; font-size: 14px; outline: none; }
+    input:focus { border-color: #34d399; }
+    button { width: 100%; margin-top: 24px; background: #10b981; color: #04120d; font-weight: 700;
+             border: none; border-radius: 10px; padding: 13px; font-size: 14px; cursor: pointer; }
+    button:hover { background: #34d399; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .msg { display: none; margin-top: 16px; font-size: 13px; border-radius: 8px; padding: 10px 12px; background: #3f1d1d; color: #fca5a5; }
+    .msg.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">COLONY</div>
+    <div class="sub">Autonomous Media Orchestrator</div>
+    <label for="username">Username</label>
+    <input id="username" autocomplete="username" autofocus>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="signin" onclick="doLogin()">Sign in</button>
+    <div id="msg" class="msg"></div>
+  </div>
+  <script>
+    async function doLogin() {
+      const btn = document.getElementById('signin');
+      const msg = document.getElementById('msg');
+      btn.disabled = true; msg.className = 'msg';
+      try {
+        const r = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ username: document.getElementById('username').value.trim(),
+                                 password: document.getElementById('password').value }) });
+        const data = await r.json();
+        if (r.ok && data.ok) { location.href = '/'; return; }
+        msg.textContent = (data && data.error) ? data.error : ('Login failed (' + r.status + ')');
+        msg.className = 'msg show';
+      } catch (e) {
+        msg.textContent = 'Network error: ' + e.message; msg.className = 'msg show';
+      }
+      btn.disabled = false; document.getElementById('password').value = '';
+    }
+    document.getElementById('password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  </script>
+</body>
+</html>"""
+
+
+@app.middleware("http")
+async def _auth_http_middleware(request: Request, call_next):
+    if not AUTH_ENABLED:
+        return await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") or path in PUBLIC_PATHS:
+        return await call_next(request)
+    if _valid_session(request):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"error": "Unauthorized. Please log in."}, status_code=401)
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    return HTMLResponse(LOGIN_HTML)
+
+
+@app.post("/api/login")
+async def api_login(request: Request):
+    if not AUTH_ENABLED:
+        return JSONResponse({"error": "Authentication is not configured."}, 403)
+    ip = _client_ip(request)
+    allowed, remaining = _login_allowed(ip)
+    if not allowed:
+        return JSONResponse(
+            {"error": f"Too many failed attempts. Try again in {max(1, remaining // 60)} min."},
+            429,
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    username = str(body.get("username", "")).strip()
+    password = str(body.get("password", ""))
+    if username == AUTH_USERNAME and _auth_check_password(password):
+        LOGIN_ATTEMPTS.pop(ip, None)
+        token = secrets.token_urlsafe(32)
+        SESSIONS[token] = time.time() + SESSION_TTL_SECONDS
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(
+            "colonyv_session",
+            token,
+            max_age=SESSION_TTL_SECONDS,
+            path="/",
+            httponly=True,
+            samesite="lax",
+            secure=(request.url.scheme == "https"),
+        )
+        return resp
+    fails, until = LOGIN_ATTEMPTS.get(ip, (0, 0))
+    fails += 1
+    if fails >= MAX_LOGIN_ATTEMPTS:
+        LOGIN_ATTEMPTS[ip] = (0, time.time() + LOCKOUT_SECONDS)
+        return JSONResponse(
+            {"error": f"Too many failed attempts. Locked out for {LOCKOUT_SECONDS // 60} minutes."},
+            429,
+        )
+    LOGIN_ATTEMPTS[ip] = (fails, until)
+    return JSONResponse(
+        {"error": f"Invalid credentials. {MAX_LOGIN_ATTEMPTS - fails} attempts remaining."}, 401)
+
+
+@app.post("/api/logout")
+async def api_logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("colonyv_session", path="/")
+    return resp
+
 
 # --- Global state ---
 pipeline_state = {
@@ -1338,6 +1541,11 @@ async def api_youtube_disconnect():
 
 @app.websocket("/ws/logs")
 async def ws_logs(websocket: WebSocket):
+    if AUTH_ENABLED:
+        token = websocket.cookies.get("colonyv_session")
+        if not (token in SESSIONS and SESSIONS.get(token, 0) > time.time()):
+            await websocket.close(code=4001)
+            return
     await websocket.accept()
     log_subscribers.append(websocket)
     try:
