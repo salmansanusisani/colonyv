@@ -54,6 +54,32 @@ DASHBOARD_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = PROJECT_ROOT / "config"
 SETTINGS_PATH = CONFIG_DIR / "settings.json"
 
+
+def _materialize_youtube_credentials():
+    """Write YouTube client_secret.json / youtube_token.json from env vars.
+
+    On Cloud Run the credential files are dockerignored and injected via
+    COLONYV_YOUTUBE_TOKEN / COLONYV_YOUTUBE_CLIENT_SECRET. The dashboard reads
+    the files directly (not the env), so materialize them here so the
+    YouTube panel and publisher agree on one source of truth.
+    """
+    pub_dir = AGENTS_DIR / "publisher"
+    pub_dir.mkdir(parents=True, exist_ok=True)
+    token_json = os.environ.get("COLONYV_YOUTUBE_TOKEN")
+    if token_json and not (pub_dir / "youtube_token.json").exists():
+        try:
+            json.loads(token_json)
+            (pub_dir / "youtube_token.json").write_text(token_json)
+        except ValueError:
+            pass
+    client_json = os.environ.get("COLONYV_YOUTUBE_CLIENT_SECRET")
+    if client_json and not (pub_dir / "client_secret.json").exists():
+        try:
+            json.loads(client_json)
+            (pub_dir / "client_secret.json").write_text(client_json)
+        except ValueError:
+            pass
+
 DEFAULT_SETTINGS = {
     "pipeline": {
         "videos_per_run": 1,
@@ -124,6 +150,8 @@ def load_settings() -> dict:
 settings = load_settings()
 APP_STARTED_AT = time.time()
 CLOUD_STATE = None
+
+_materialize_youtube_credentials()
 
 
 _last_persist_ts: float = 0.0
@@ -1389,6 +1417,7 @@ YOUTUBE_SCOPES = [
 
 
 def _youtube_data():
+    _materialize_youtube_credentials()
     token_path = AGENTS_DIR / "publisher" / "youtube_token.json"
     has_credentials = (AGENTS_DIR / "publisher" / "client_secret.json").exists()
     if not token_path.exists():
