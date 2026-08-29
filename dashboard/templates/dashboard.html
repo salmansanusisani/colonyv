@@ -1477,21 +1477,123 @@
                     </div>
 
                     <div class="apple-card settings-panel" id="manual-setup" data-settings-panel="manual">
-                        <div class="card-title" style="margin-bottom:12px;">ColonyV Manual</div>
-                        <p style="font-size:14px; color:var(--text-secondary); line-height:1.6; margin-bottom:18px;">Configure the workspace first, then run and monitor the live pipeline from Dashboard.</p>
-                        <pre style="white-space:pre-wrap; background:#111827; color:#d1fae5; padding:20px; border-radius:12px; line-height:1.55; font-size:12px; overflow:auto;">SETTINGS
-  AI Model -> Content Focus -> RSS Sources -> YouTube
-  Pipeline -> Notifications -> Scheduler -> Manual
+                        <div class="card-title" style="margin-bottom:4px;">ColonyV Owner's Manual</div>
+                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">How to actually run the machine — and what every setting does.</p>
 
-RUNTIME
-  RSS Monitor -> Research -> Scriptwriter -> Producer -> YouTube
-                                      \-> Analyst and feedback
+                        <style>
+                            .mguide { font-size:14px; color:var(--text-primary); line-height:1.65; }
+                            .mguide h4 { font-size:14px; margin:26px 0 8px; color:var(--apple-blue); text-transform:uppercase; letter-spacing:.06em; }
+                            .mguide h4:first-child { margin-top:10px; }
+                            .mguide p { margin:0 0 10px; }
+                            .mguide ul { margin:0 0 12px 18px; padding:0; }
+                            .mguide li { margin-bottom:6px; }
+                            .mguide code { background:#f0f2f5; border:1px solid rgba(0,0,0,.08); border-radius:5px; padding:1px 6px; font-size:12.5px; }
+                            .mguide details { background:#ffffff; border:1px solid rgba(0,0,0,.08); border-radius:10px; margin:0 0 10px; padding:2px 14px; box-shadow:var(--shadow-sm); }
+                            .mguide details[open] { padding-bottom:10px; }
+                            .mguide summary { cursor:pointer; font-weight:600; padding:10px 0 10px 2px; color:#1d1d1f; }
+                            .mguide summary:hover { color:var(--apple-blue); }
+                            .mguide table { width:100%; border-collapse:collapse; font-size:13px; margin:6px 0 10px; }
+                            .mguide th { text-align:left; color:var(--text-secondary); font-weight:600; padding:6px 8px; border-bottom:2px solid rgba(0,0,0,.08); white-space:nowrap; }
+                            .mguide td { padding:8px; border-bottom:1px solid rgba(0,0,0,.05); vertical-align:top; }
+                            .mguide td:first-child { white-space:nowrap; font-weight:600; }
+                            .mg-note { background:#f0f7ff; border:1px solid rgba(0,113,227,.25); border-radius:8px; padding:8px 12px; font-size:13px; margin:8px 0 12px; }
+                            .mg-callout { background:#fffdf5; border:1px solid rgba(255,149,0,.35); border-radius:8px; padding:8px 12px; font-size:13px; margin:8px 0 12px; }
+                        </style>
 
-CONTROLS
-  Run starts a new run from saved settings.
-  Pause freezes the active process and timeout clock.
-  Resume continues the same process.
-  Stop Completely terminates the process tree.</pre>
+                        <div class="mguide">
+                            <h4>Quick start — how to use it</h4>
+                            <ol style="margin:0 0 12px 20px; padding:0;">
+                                <li><strong>Sign in.</strong> The app is private. Enter your username and password on the login screen. A session lasts 24&nbsp;hours. After <strong>10 failed attempts</strong> in a row you are locked out for 15 minutes.</li>
+                                <li><strong>Open Settings</strong> and check: your <em>Active Focus Area</em> topic, <em>Brand Tone</em>, <em>Videos per run</em>, and your <em>RSS feeds</em>. Press Save after each panel you touch.</li>
+                                <li><strong>Go to Dashboard → click Run.</strong> The run starts immediately and the schedule arms automatically (see Scheduler below).</li>
+                                <li><strong>Watch the workspace cards.</strong> Each video moves through 6 stages — they light in real time. <em>Live Log</em> shows every agent line.</li>
+                                <li><strong>Wait for publish.</strong> When Publishing completes, the video is uploaded (public) to the connected YouTube channel, then the Analyst reviews the run in the background.</li>
+                            </ol>
+                            <p>The 6 workspace stages are <strong>Monitor</strong> (discovery), <strong>Research</strong> (fact-check), <strong>Script</strong>, <strong>Art Director</strong>, <strong>Render</strong> (MP4), and <strong>Publish</strong> (upload). Cards turn green while a stage is running, go grey after publish, and reset for the next video. When you Pause or Stop, everything greys out.</p>
+
+                            <h4>Pipeline controls</h4>
+                            <table>
+                                <tr><th>Control</th><th>What it really does</th></tr>
+                                <tr><td>Run</td><td>Starts a new run with the saved settings (Videos per run stories). Also <em>arms</em> the scheduler: the countdown starts now.</td></tr>
+                                <tr><td>Pause</td><td>Freezes the current work mid-step and stops the timeout clock. Nothing advances while paused.</td></tr>
+                                <tr><td>Resume</td><td>Continues exactly where Pause froze the run.</td></tr>
+                                <tr><td>Stop Completely</td><td>Terminates the whole process tree and marks the run stopped. It also <em>disarms</em> the scheduler — no more automatic runs until you click Run again.</td></tr>
+                            </table>
+
+                            <h4>Reference: every setting, explained</h4>
+
+                            <details open>
+                                <summary>Pipeline Defaults</summary>
+                                <table>
+                                    <tr><th>Setting</th><th>What it does</th></tr>
+                                    <tr><td>Videos per run</td><td>How many stories are processed into videos each time you run (or each scheduled run). Range 1–20. Picked from the top-ranked stories discovered that run.</td></tr>
+                                    <tr><td>Maximum narration duration</td><td>Target cap (seconds, 10–60) for the voice track. The Scriptwriter keeps narration inside this window; the whole video is shorter than this only if the script is.</td></tr>
+                                    <tr><td>Auto-Run Schedule</td><td>How often the machine fires autonomously. Options: 1 min / 5 min (test-only — useful to verify the scheduler), 1 h, 3 h, 6 h, 12 h, 24 h.</td></tr>
+                                </table>
+                                <div class="mg-note">Scheduler behaviour: the schedule starts <strong>disarmed</strong>. It only begins counting after your first manual <strong>Run</strong>. From then on it fires every interval on its own. <strong>Stop Completely</strong> disarms it again.</div>
+                            </details>
+
+                            <details>
+                                <summary>AI Brain (Model)</summary>
+                                <p>Locked to <strong>Gemini on Vertex AI</strong> — no API keys needed; cloud credentials are handled automatically. The model id shown is read from the <code>COLONYV_GEMINI_MODEL</code> environment variable and is read-only here.</p>
+                            </details>
+
+                            <details>
+                                <summary>Channel Niche &amp; Target Topic Focus</summary>
+                                <table>
+                                    <tr><th>Setting</th><th>What it does</th></tr>
+                                    <tr><td>Active Focus Area</td><td>Pick the topic the channel will monitor and produce. During discovery the machine builds a live Google News search feed for this topic and scores stories for relevance to it.</td></tr>
+                                    <tr><td>+ Add Custom Topic</td><td>Add your own niche. Selecting it makes the pipeline chase that niche until you switch back.</td></tr>
+                                    <tr><td>Brand Tone / Persona</td><td>Scriptwriting style guide: <em>Engaging &amp; Fast-Paced Tech News</em>, <em>Analytical Deep Dive</em>, or <em>Urgent Breaking Brief</em>. Controls hook/body/CTA voice.</td></tr>
+                                </table>
+                            </details>
+
+                            <details>
+                                <summary>RSS Feed Sources</summary>
+                                <table>
+                                    <tr><th>Column</th><th>What it does</th></tr>
+                                    <tr><td>URL</td><td>The RSS/Atom feed the Monitor scans. Products like Google News search links work too.</td></tr>
+                                    <tr><td>Category</td><td>Free-text label (tech, hardware, crypto…) used for scoring context. Not a filter.</td></tr>
+                                    <tr><td>Enabled</td><td>Unchecked feeds are skipped entirely.</td></tr>
+                                </table>
+                                <p>How feeds are used: with an active topic, the topic’s news feed is searched <em>first</em>, then your feeds here act as <strong>backfill</strong> — so one dry feed never stalls a run. A feed that fails to load is skipped with a warning; the others still contribute.</p>
+                            </details>
+
+                            <details>
+                                <summary>YouTube OAuth Credentials</summary>
+                                <p>Paste the downloaded <code>client_secret.json</code>, press <strong>Save Credentials</strong>, then <strong>Connect with Google</strong> to authorize your channel. <strong>Disconnect</strong> revokes it. Videos from the publisher upload as <strong>public</strong> to the connected channel. If uploads fail you can retry them from the YouTube tab.</p>
+                            </details>
+
+                            <details>
+                                <summary>Alerts &amp; Webhooks</summary>
+                                <table>
+                                    <tr><th>Setting</th><th>What it does</th></tr>
+                                    <tr><td>Slack Webhook URL</td><td>Posts a message to a Slack channel when a run completes or errors.</td></tr>
+                                    <tr><td>Email Recipient</td><td>Same completion/error notices sent by email.</td></tr>
+                                    <tr><td>Test Integration</td><td>Sends a sample notice so you can confirm the channel works before the next run.</td></tr>
+                                </table>
+                            </details>
+
+                            <h4>How a run flows (you don't have to do anything)</h4>
+                            <ol style="margin:0 0 10px 20px; padding:0;">
+                                <li><strong>Monitor</strong> — fetches the topic + your feeds, de-duplicates against stories already seen, and scores candidates.</li>
+                                <li><strong>Research</strong> — reads each story, verifies every claim and records contradictions + confidence.</li>
+                                <li><strong>Script</strong> — writes the hook/body/CTA using only verified claims.</li>
+                                <li><strong>Art Director</strong> — designs the episode: palette, illustration style, per-shot plan.</li>
+                                <li><strong>Visual Producer</strong> — narrates with TTS, generates illustrations, renders the 1080×1920 MP4.</li>
+                                <li><strong>Publisher</strong> — uploads to YouTube with title, description, tags.</li>
+                                <li><strong>Analyst</strong> — reviews the run and feeds learned signals back into future prompts.</li>
+                            </ol>
+                            <div class="mg-callout">Quality gates: a story with <strong>0 verifiable claims</strong> or <strong>2+ contradictions</strong> is not published — it's dropped and discovery looks for more candidates instead. You get fewer, correct videos rather than louder, wrong ones.</div>
+
+                            <h4>Logs, runs &amp; costs</h4>
+                            <ul>
+                                <li><strong>Live Log / Logs</strong> — every agent line streams over WebSocket and is saved to <code>output/&lt;run_id&gt;/pipeline.log</code>.</li>
+                                <li><strong>Past Runs</strong> — every run and story; click one for per-story detail.</li>
+                                <li><strong>Analytics</strong> — stories/day, scores, YouTube views, success rate.</li>
+                                <li><strong>Costs</strong> — LLM call counts and estimated spend per run.</li>
+                            </ul>
+                        </div>
                     </div>
 
                 </div>
