@@ -45,6 +45,17 @@ CACHE_DIR = Path(
     os.environ.get("COLONYV_ILLUSTRATION_CACHE", str(PRODUCER_DIR / ".illustration_cache"))
 )
 
+# Optional second cache tier in Cloud Storage.
+#
+# Cloud Run's filesystem is ephemeral, so the local cache is empty on every new
+# revision and every cold start — meaning an identical illustration gets paid for
+# again each deploy. A bucket makes the cache outlive the container.
+#
+# Entirely optional: unset, or unreachable, and the engine simply uses the local
+# tier. A cache is never allowed to be the reason a render fails.
+CACHE_BUCKET = os.environ.get("COLONYV_CACHE_BUCKET", "").strip()
+CACHE_PREFIX = os.environ.get("COLONYV_CACHE_PREFIX", "illustrations").strip("/")
+
 IMAGE_MODEL = os.environ.get("COLONYV_IMAGE_MODEL", "gemini-2.5-flash-image")
 ASPECT_RATIO = "9:16"
 # Bump when post-processing changes, to invalidate cached plates.
@@ -416,6 +427,56 @@ def _normalise(raw: bytes, out_path: Path, *, ground: str | None = None) -> bool
         return False
 
 
+def _remote_bucket():
+    """Return the cache bucket, or None. Result is memoised on the function."""
+    if not CACHE_BUCKET:
+        return None
+    cached = getattr(_remote_bucket, "_value", "unset")
+    if cached != "unset":
+        return cached
+    bucket = None
+    try:
+        from google.cloud import storage
+
+        bucket = storage.Client().bucket(CACHE_BUCKET)
+    except Exception as exc:
+        print(
+            f"  [warn] Illustration cache bucket unavailable ({exc}); using local cache only",
+            file=sys.stderr,
+        )
+    _remote_bucket._value = bucket  # type: ignore[attr-defined]
+    return bucket
+
+
+def _remote_fetch(key: str, dest: Path) -> bool:
+    """Try to satisfy a cache miss from Cloud Storage."""
+    bucket = _remote_bucket()
+    if bucket is None:
+        return False
+    try:
+        blob = bucket.blob(f"{CACHE_PREFIX}/{key}.png")
+        if not blob.exists():
+            return False
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        blob.download_to_filename(str(dest))
+        return dest.stat().st_size > 1024
+    except Exception as exc:
+        print(f"  [warn] Could not read illustration cache: {exc}", file=sys.stderr)
+        return False
+
+
+def _remote_store(key: str, source: Path) -> None:
+    bucket = _remote_bucket()
+    if bucket is None:
+        return
+    try:
+        bucket.blob(f"{CACHE_PREFIX}/{key}.png").upload_from_filename(
+            str(source), content_type="image/png"
+        )
+    except Exception as exc:
+        print(f"  [warn] Could not write illustration cache: {exc}", file=sys.stderr)
+
+
 def render_illustration(
     client,
     *,
@@ -445,15 +506,21 @@ def render_illustration(
         "prompt": subject_prompt,
     }
 
-    if use_cache and cached.exists() and cached.stat().st_size > 1024:
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_path.write_bytes(cached.read_bytes())
-            result.update(available=True, cached=True)
-            print(f"  [cache] {beat_name} -> {out_path.name}", flush=True)
-            return result
-        except OSError:
-            pass
+    if use_cache:
+        # Local tier first, then the bucket. A remote hit is populated locally so
+        # a second shot needing the same plate in this run costs nothing.
+        if not (cached.exists() and cached.stat().st_size > 1024):
+            if _remote_fetch(key, cached):
+                print(f"  [cache] {beat_name} <- bucket", flush=True)
+        if cached.exists() and cached.stat().st_size > 1024:
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(cached.read_bytes())
+                result.update(available=True, cached=True)
+                print(f"  [cache] {beat_name} -> {out_path.name}", flush=True)
+                return result
+            except OSError:
+                pass
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
@@ -470,6 +537,7 @@ def render_illustration(
                     cached.write_bytes(out_path.read_bytes())
                 except OSError:
                     pass
+                _remote_store(key, out_path)
 
             _pacer.reward()
             result.update(available=True)

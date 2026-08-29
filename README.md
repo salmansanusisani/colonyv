@@ -262,15 +262,23 @@ source .venv/bin/activate
 pytest -v
 ```
 
-### 2. Verify Motion Graphics Compiler (TypeScript)
+### 2. Verify the Renderer
+
+Type-check the layer library, layout composer and timeline builder:
 
 Validate that the layer library, layout composer, and timeline builder pass
 strict TypeScript compilation:
 
 ```bash
-cd producer
-npx tsc --noEmit
-cd ..
+cd producer && npx tsc --noEmit && cd ..
+```
+
+Type-checking proves the composition compiles, not that it renders. To render one
+still per layout in headless Chromium and catch runtime failures a type-checker
+cannot see:
+
+```bash
+COLONYV_RENDER_SMOKE=1 pytest tests/test_render_smoke.py -v
 ```
 
 ### 3. Verify Gemini / Vertex AI Connectivity
@@ -316,9 +324,12 @@ Then navigate to **`http://localhost:8000`** in your browser.
 | `COLONYV_GEMINI_MODEL` | No | Gemini model identifier |
 | `REMOTION_CHROMIUM_EXECUTABLE_PATH` | No | Path to Chromium (default: `/usr/bin/chromium`) |
 | `COLONYV_IMAGE_MODEL` | No | Illustration model (default `gemini-2.5-flash-image`) |
-| `COLONYV_ILLUSTRATION_BUDGET` | No | Max illustrations per video (default `4`) |
+| `COLONYV_ILLUSTRATION_BUDGET` | No | Max illustrations per video. Unset scales the budget to the shot count, bounded 2..6 |
 | `COLONYV_ILLUSTRATION_WORKERS` | No | Concurrent image requests (default `1`) |
 | `COLONYV_ILLUSTRATION_INTERVAL` | No | Seconds between image requests (default `1.5`) |
+| `COLONYV_CACHE_BUCKET` | No | Cloud Storage bucket backing the illustration cache. Without it the cache is local only, which on Cloud Run means re-paying for identical images after every deploy |
+| `COLONYV_CACHE_PREFIX` | No | Object prefix inside that bucket (default `illustrations`) |
+| `COLONYV_RENDER_SMOKE` | No | Set to `1` to enable the per-layout render smoke test |
 | `PRODUCER_TIMEOUT` | No | Render timeout in seconds (default `1800`) |
 
 ## Dashboard Configuration
