@@ -112,6 +112,8 @@ export interface Script {
 }
 
 export interface VideoProps {
+  /** Sound design on/off. Only disabled by the render smoke test. */
+  sfx?: boolean;
   script?: Script;
   timing?: Timing;
   visualPlan?: VisualPlan;

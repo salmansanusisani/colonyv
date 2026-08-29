@@ -7,6 +7,7 @@ import { HOOK_BEAT, OUTRO_BEAT } from "./types";
 import type { Shot, Timing, VideoProps, VisualPlan } from "./types";
 import { ShotComposition } from "./layouts";
 import { Transition } from "./layers/Transition";
+import { Sfx } from "./layers/Sfx";
 
 // Fonts are loaded at module scope so Remotion registers the pending handles
 // before the first frame is rasterised. Without this the first shots render in
@@ -141,7 +142,13 @@ const buildTimeline = (
   return { entries, total: cursor };
 };
 
-export const ContentVideo: React.FC<VideoProps> = ({ script, timing, visualPlan, brand }) => {
+export const ContentVideo: React.FC<VideoProps> = ({
+  script,
+  timing,
+  visualPlan,
+  brand,
+  sfx,
+}) => {
   const runTiming: Timing = {
     hookFrames: timing?.hookFrames ?? DEFAULT_TIMING.hookFrames,
     outroFrames: timing?.outroFrames ?? DEFAULT_TIMING.outroFrames,
@@ -170,6 +177,13 @@ export const ContentVideo: React.FC<VideoProps> = ({ script, timing, visualPlan,
           name={`${entry.shot.layout} · ${entry.key}`}
         >
           <Audio src={staticFile(entry.audio)} />
+          <Sfx
+            shot={entry.shot}
+            duration={entry.duration}
+            motionKey={motionKey}
+            isFirst={i === 0}
+            enabled={sfx !== false}
+          />
           <Transition
             kind={entry.shot.transition_in}
             accent={accent}

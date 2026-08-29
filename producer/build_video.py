@@ -123,7 +123,19 @@ def measure_duration_seconds(path: Path) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# SFX synthesis (pure Python, no downloads)
+# SFX synthesis (pure Python, no downloads, no extra dependencies)
+#
+# The kit is synthesised rather than shipped as audio files: it keeps the repo
+# free of licensed assets, is deterministic, and costs nothing.
+#
+# The sounds are deliberately dry and mechanical, to match the technical-manual
+# identity of the visuals — a drafting click, paper movement, a stamp on a page.
+# Three shaping techniques do most of the work:
+#
+#   * band-limiting noise, because raw white noise reads as cheap digital hiss
+#   * sharp attack with exponential decay, so a cue punctuates instead of pads
+#   * edge fades and peak normalisation, so no cue clicks at its boundaries and
+#     all cues sit at a predictable level under narration
 # ---------------------------------------------------------------------------
 
 def write_wav(path: Path, samples: list[float]) -> None:
@@ -136,39 +148,189 @@ def write_wav(path: Path, samples: list[float]) -> None:
         )
 
 
-def synth_whoosh(duration_s: float = 0.45) -> list[float]:
-    n = int(SAMPLE_RATE * duration_s)
-    return [random.uniform(-1, 1) * (math.sin(math.pi * (i / n)) ** 0.6) * 9000 for i in range(n)]
+def _lowpass(samples: list[float], cutoff_hz: float) -> list[float]:
+    """One-pole lowpass. Cheap, and enough to take the fizz off noise."""
+    if cutoff_hz <= 0:
+        return samples
+    dt = 1.0 / SAMPLE_RATE
+    rc = 1.0 / (2 * math.pi * cutoff_hz)
+    alpha = dt / (rc + dt)
+    out: list[float] = []
+    prev = 0.0
+    for s in samples:
+        prev += alpha * (s - prev)
+        out.append(prev)
+    return out
 
 
-def synth_pop(duration_s: float = 0.09) -> list[float]:
+def _highpass(samples: list[float], cutoff_hz: float) -> list[float]:
+    """One-pole highpass, to keep low rumble out of the narration's range."""
+    if cutoff_hz <= 0:
+        return samples
+    dt = 1.0 / SAMPLE_RATE
+    rc = 1.0 / (2 * math.pi * cutoff_hz)
+    alpha = rc / (rc + dt)
+    out: list[float] = []
+    prev_in = 0.0
+    prev_out = 0.0
+    for s in samples:
+        prev_out = alpha * (prev_out + s - prev_in)
+        prev_in = s
+        out.append(prev_out)
+    return out
+
+
+def _normalise_peak(samples: list[float], peak: float) -> list[float]:
+    """Scale to an absolute peak so every cue sits at a predictable level."""
+    high = max((abs(s) for s in samples), default=0.0)
+    if high < 1e-9:
+        return samples
+    gain = peak / high
+    return [s * gain for s in samples]
+
+
+def _fade_edges(samples: list[float], ms: float = 4.0) -> list[float]:
+    """Fade the first and last few milliseconds.
+
+    Without this, a waveform that starts or ends off zero produces an audible
+    click on every playback — the most common way synthesised SFX sound broken.
+    """
+    n = len(samples)
+    fade = min(int(SAMPLE_RATE * ms / 1000.0), n // 2)
+    if fade <= 0:
+        return samples
+    out = list(samples)
+    for i in range(fade):
+        g = i / fade
+        out[i] *= g
+        out[n - 1 - i] *= g
+    return out
+
+
+def _finish(samples: list[float], peak: float) -> list[float]:
+    """Fade the edges, then normalise.
+
+    Order matters. Normalising first and fading second means the fade removes
+    part of the peak the normalisation just set, so the cue ends up quieter than
+    requested — measurably so for percussive cues, whose peak *is* the first few
+    samples.
+
+    The fade is also kept proportionally short for brief cues. A 4ms fade on a
+    55ms click erases the attack transient, which is precisely the part that makes
+    it read as a click rather than as a soft blip.
+    """
+    short = len(samples) < SAMPLE_RATE * 0.12
+    return _normalise_peak(_fade_edges(samples, 1.0 if short else 4.0), peak)
+
+
+def synth_tick(duration_s: float = 0.055) -> list[float]:
+    """A crisp drafting click, for an element arriving on the page."""
     n = int(SAMPLE_RATE * duration_s)
     out = []
     for i in range(n):
         t = i / SAMPLE_RATE
-        out.append(math.sin(2 * math.pi * 220.0 * t) * math.exp(-t * 45) * 12000)
-    return out
+        env = math.exp(-t * 190)
+        body = math.sin(2 * math.pi * 1750 * t) * 0.55
+        body += math.sin(2 * math.pi * 3100 * t) * 0.25
+        body += random.uniform(-1, 1) * 0.5
+        out.append(body * env)
+    return _finish(_highpass(_lowpass(out, 7200), 700), 8200)
 
 
-def synth_ding(duration_s: float = 0.55) -> list[float]:
+def synth_swoosh(duration_s: float = 0.34) -> list[float]:
+    """Paper movement, for a slide or wipe transition.
+
+    A noise burst swept downward through a lowpass, which is what makes it read
+    as physical movement rather than as static.
+    """
     n = int(SAMPLE_RATE * duration_s)
-    f0 = 1046.5
+    raw = []
+    for i in range(n):
+        p = i / n
+        env = math.sin(math.pi * p) ** 1.4
+        raw.append(random.uniform(-1, 1) * env)
+    swept = []
+    prev = 0.0
+    for i, s in enumerate(raw):
+        p = i / n
+        cutoff = 5200 - 3900 * p
+        dt = 1.0 / SAMPLE_RATE
+        rc = 1.0 / (2 * math.pi * max(200.0, cutoff))
+        alpha = dt / (rc + dt)
+        prev += alpha * (s - prev)
+        swept.append(prev)
+    return _finish(_highpass(swept, 420), 6200)
+
+
+def synth_riser(duration_s: float = 0.85) -> list[float]:
+    """A rising tone for the hook, to pull the viewer in.
+
+    Frequency is integrated rather than substituted into sin(2*pi*f(t)*t), which
+    would produce audible phase discontinuities as f changes.
+    """
+    n = int(SAMPLE_RATE * duration_s)
+    out = []
+    phase = 0.0
+    for i in range(n):
+        p = i / n
+        freq = 190 + (900 - 190) * (p ** 1.7)
+        phase += 2 * math.pi * freq / SAMPLE_RATE
+        env = (p ** 0.8) * (1.0 - max(0.0, (p - 0.86) / 0.14))
+        tone = math.sin(phase) * 0.7 + math.sin(phase * 2) * 0.2
+        tone += random.uniform(-1, 1) * 0.12 * p
+        out.append(tone * env)
+    return _finish(_highpass(_lowpass(out, 5200), 130), 6800)
+
+
+def synth_stamp(duration_s: float = 0.26) -> list[float]:
+    """A stamp landing on paper, for a figure settling on its final value."""
+    n = int(SAMPLE_RATE * duration_s)
     out = []
     for i in range(n):
         t = i / SAMPLE_RATE
-        sample = (
-            math.sin(2 * math.pi * f0 * t)
-            + math.sin(2 * math.pi * f0 * 2 * t) * 0.35
-            + math.sin(2 * math.pi * f0 * 3 * t) * 0.15
-        )
-        out.append(sample * math.exp(-t * 5.5) * 7000)
-    return out
+        thud = math.sin(2 * math.pi * 118 * t) * math.exp(-t * 26)
+        thud += math.sin(2 * math.pi * 74 * t) * math.exp(-t * 19) * 0.7
+        crack = random.uniform(-1, 1) * math.exp(-t * 150) * 0.45
+        out.append(thud + crack)
+    return _finish(_highpass(_lowpass(out, 3000), 60), 9000)
+
+
+def synth_chime(duration_s: float = 0.72) -> list[float]:
+    """A soft bell for the outro. Inharmonic partials keep it from sounding synthetic."""
+    n = int(SAMPLE_RATE * duration_s)
+    f0 = 987.77
+    partials = ((1.0, 1.0, 5.0), (2.02, 0.34, 7.5), (2.99, 0.16, 10.0), (4.21, 0.07, 13.0))
+    out = []
+    for i in range(n):
+        t = i / SAMPLE_RATE
+        sample = 0.0
+        for ratio, amp, decay in partials:
+            sample += math.sin(2 * math.pi * f0 * ratio * t) * amp * math.exp(-t * decay)
+        out.append(sample)
+    return _finish(_highpass(out, 300), 6000)
+
+
+# Cue name -> synthesiser. Kept as data so the Remotion side and the staging
+# step agree on exactly one list of filenames.
+SFX_KIT: dict[str, Any] = {
+    "tick": synth_tick,
+    "swoosh": synth_swoosh,
+    "riser": synth_riser,
+    "stamp": synth_stamp,
+    "chime": synth_chime,
+}
 
 
 def build_sfx(sfx_dir: Path) -> None:
-    write_wav(sfx_dir / "whoosh.wav", synth_whoosh())
-    write_wav(sfx_dir / "pop.wav", synth_pop())
-    write_wav(sfx_dir / "ding.wav", synth_ding())
+    # Fixed seed so a re-render produces byte-identical noise components and the
+    # output MP4 is reproducible.
+    state = random.getstate()
+    random.seed(0xC01047)
+    try:
+        for name, synth in SFX_KIT.items():
+            write_wav(sfx_dir / f"{name}.wav", synth())
+    finally:
+        random.setstate(state)
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +565,7 @@ async def build_video(
     shutil.copy2(cta_path, PUBLIC_DIR / "audio" / "03_cta.mp3")
     for p in beat_paths:
         shutil.copy2(p, PUBLIC_DIR / "audio" / p.name)
-    for name in ("whoosh", "pop", "ding"):
+    for name in SFX_KIT:
         src = sfx_dir / f"{name}.wav"
         if src.exists():
             shutil.copy2(src, PUBLIC_DIR / "sfx" / f"{name}.wav")
@@ -489,15 +651,46 @@ def main() -> None:
     parser.add_argument("--scene-plan", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    asyncio.run(
-        build_video(
-            args.script_json,
-            args.output,
-            visual_plan_path=args.visual_plan,
-            research_path=args.research_json,
-            illustration_budget=max(0, args.illustrations),
-            no_cache=args.no_cache,
-        )
+    asyncio.run(_run(args))
+
+
+def _silence_genai_teardown_noise(loop: asyncio.AbstractEventLoop) -> None:
+    """Suppress a known google-genai shutdown bug, and nothing else.
+
+    The SDK schedules `BaseApiClient.aclose()` when a client is garbage collected.
+    Because the whole producer runs inside `asyncio.run` for the TTS stage, that
+    collection happens while a loop is running, and the coroutine fails with
+    `AttributeError: 'BaseApiClient' object has no attribute '_async_httpx_client'`.
+    asyncio then reports each one as an unretrieved task exception.
+
+    The failure is purely cosmetic — the client is being discarded anyway — but it
+    prints a full traceback per client, which floods Cloud Run logs and makes a
+    successful render look like a crash. Only this exact signature is swallowed;
+    every other loop exception still surfaces normally.
+    """
+    inherited = loop.get_exception_handler()
+
+    def handler(active_loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        exc = context.get("exception")
+        if isinstance(exc, AttributeError) and "_async_httpx_client" in str(exc):
+            return
+        if inherited is not None:
+            inherited(active_loop, context)
+        else:
+            active_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(handler)
+
+
+async def _run(args: argparse.Namespace) -> None:
+    _silence_genai_teardown_noise(asyncio.get_running_loop())
+    await build_video(
+        args.script_json,
+        args.output,
+        visual_plan_path=args.visual_plan,
+        research_path=args.research_json,
+        illustration_budget=max(0, args.illustrations),
+        no_cache=args.no_cache,
     )
 
 
