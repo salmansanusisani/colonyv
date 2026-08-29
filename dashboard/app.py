@@ -80,7 +80,6 @@ DEFAULT_SETTINGS = {
     },
     "notifications": {
         "slack_webhook": "",
-        "email_to": "",
         "on_complete": True,
         "on_error": True,
     },
@@ -674,6 +673,7 @@ async def _begin_production_run(stories: int, *, source: str, skip_publish: bool
 
     model_id = settings["model"].get("model_id", "gemini/gemini-3.5-flash")
     topic = pick_run_topic()
+    pipeline_state["run_topic"] = topic
     log(f"Focus topic for this run: {topic}")
     model_env = {
         **os.environ,
@@ -747,9 +747,21 @@ async def run_production_director(stories: int):
             pipeline_state["current_step"] = "stopped"
         elif result.get("error"):
             log(f"ADK production failed: {result['error']}")
+            if notification_config.get("on_error"):
+                await send_notification(f"ADK production failed: {result['error']}", level="error")
         else:
             produced = result.get("stories_produced", [])
             log(f"ADK production completed with {len(produced)} finished story(ies).")
+            pipeline_state["last_completed_run"] = {
+                "ts": datetime.now().isoformat(),
+                "stories": len(produced),
+                "topic": pipeline_state.get("run_topic", ""),
+            }
+            if notification_config.get("on_complete"):
+                await send_notification(
+                    f"ADK production complete: {len(produced)} story(ies) rendered",
+                    level="success",
+                )
         if CLOUD_STATE:
             CLOUD_STATE.save_run(
                 pipeline_state["run_id"],
@@ -765,7 +777,7 @@ async def run_production_director(stories: int):
     except Exception as e:
         log(f"ADK production error: {e}")
         if notification_config.get("on_error"):
-            await send_notification(f"ADK production error: {e}")
+            await send_notification(f"ADK production error: {e}", level="error")
     finally:
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
@@ -2043,7 +2055,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
 
             # Send notification
             if notification_config.get("on_complete"):
-                await send_notification(f"Pipeline complete: {pipeline_state['content_done']}/{len(stories_list)} pieces of content rendered")
+                await send_notification(f"Pipeline complete: {pipeline_state['content_done']}/{len(stories_list)} pieces of content rendered", level="success")
 
             # Track cost (rough estimate: 3 LLM calls per story — monitor scoring, research, script)
             llm_calls = len(stories_list) * 3
@@ -2092,7 +2104,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
     except Exception as e:
         log(f"Pipeline error: {e}")
         if notification_config.get("on_error"):
-            await send_notification(f"Pipeline error: {e}")
+            await send_notification(f"Pipeline error: {e}", level="error")
     finally:
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
@@ -2223,44 +2235,75 @@ async def api_scheduler_set(request: Request):
 
 notification_config = {
     "slack_webhook": settings["notifications"].get("slack_webhook") or os.environ.get("SLACK_WEBHOOK_URL", ""),
-    "email_to": settings["notifications"].get("email_to") or os.environ.get("NOTIFY_EMAIL", ""),
     "on_complete": settings["notifications"].get("on_complete", True),
     "on_error": settings["notifications"].get("on_error", True),
 }
+
+# In-app notification log: persisted locally so any logged-in session visiting
+# Settings -> Alerts & Notifications sees the same history on this host.
+NOTIFICATIONS_LOG_PATH = CONFIG_DIR / "notifications.json"
+MAX_SAVED_NOTIFICATIONS = 50
+
+
+def _load_notification_log() -> list[dict]:
+    if NOTIFICATIONS_LOG_PATH.exists():
+        try:
+            with open(NOTIFICATIONS_LOG_PATH) as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data[-MAX_SAVED_NOTIFICATIONS:]
+        except (OSError, json.JSONDecodeError):
+            pass
+    return []
+
+
+def _append_notification(level: str, message: str) -> None:
+    log_entries = _load_notification_log()
+    log_entries.append({
+        "id": f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:4]}",
+        "ts": datetime.now().isoformat(),
+        "level": level,  # success | error | info
+        "message": message,
+    })
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = NOTIFICATIONS_LOG_PATH.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
+            json.dump(log_entries[-MAX_SAVED_NOTIFICATIONS:], f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, NOTIFICATIONS_LOG_PATH)
+    except OSError:
+        pass
 
 
 @app.get("/api/notifications")
 async def api_notifications_get():
     return {
         "slack_webhook": notification_config["slack_webhook"] or "",
-        "email_to": notification_config["email_to"] or "",
         "slack_configured": bool(notification_config["slack_webhook"]),
-        "email_configured": bool(notification_config["email_to"]),
         "on_complete": notification_config["on_complete"],
         "on_error": notification_config["on_error"],
+        "notifications": list(reversed(_load_notification_log())),
     }
 
 
 @app.post("/api/notifications")
 async def api_notifications_set(request: Request):
     body = await request.json() or {}
-    # Never silently wipe a configured endpoint: empty values keep the
-    # previously saved value unless an explicit "clear_webhook"/"clear_email"
-    # flag is provided.
-    for key in ("slack_webhook", "email_to"):
-        value = body.get(key)
-        if value:
-            notification_config[key] = str(value).strip()
+    # Never silently wipe a configured endpoint: an empty value keeps the
+    # previously saved webhook unless an explicit "clear_webhook" flag is set.
+    value = body.get("slack_webhook")
+    if value:
+        notification_config["slack_webhook"] = str(value).strip()
     for key in ("on_complete", "on_error"):
         if key in body:
             notification_config[key] = bool(body[key])
     if body.get("clear_webhook"):
         notification_config["slack_webhook"] = ""
-    if body.get("clear_email"):
-        notification_config["email_to"] = ""
     settings["notifications"].update({
         key: notification_config[key]
-        for key in ("slack_webhook", "email_to", "on_complete", "on_error")
+        for key in ("slack_webhook", "on_complete", "on_error")
         if key in notification_config
     })
     save_settings()
@@ -2338,16 +2381,25 @@ async def api_notifications_test():
         except Exception as e:
             return {"error": f"Slack failed: {e}"}
 
-    if notification_config["email_to"]:
-        sent.append("email (configured but not sent in test)")
-
     return {"sent": sent}
 
 
-async def send_notification(message: str):
-    if not notification_config["slack_webhook"]:
-        return
+@app.post("/api/notifications/clear")
+async def api_notifications_clear():
+    try:
+        if NOTIFICATIONS_LOG_PATH.exists():
+            NOTIFICATIONS_LOG_PATH.unlink()
+    except OSError:
+        pass
+    return {"status": "ok"}
+
+
+async def send_notification(message: str, level: str = "info"):
+    """Record a notification in-app (always) and push to Slack (if configured)."""
+    _append_notification(level, message)
     webhook = notification_config["slack_webhook"]
+    if not webhook:
+        return
     try:
         import requests
         loop = asyncio.get_running_loop()

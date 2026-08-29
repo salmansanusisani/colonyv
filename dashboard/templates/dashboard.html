@@ -1508,21 +1508,26 @@
 
                     <!-- 5. Alerts & Notifications -->
                     <div class="apple-card settings-panel" id="alert-setup" data-settings-panel="alerts">
-                        <div class="card-title" style="margin-bottom:16px;">Alerts & Webhooks</div>
+                        <div class="card-title" style="margin-bottom:16px;">Alerts & Notifications</div>
+                        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Notification history lives on the server, so it is visible here from any login. Optionally forward messages to Slack too.</p>
                         <div class="settings-group">
                             <div class="settings-row">
-                                <div class="settings-label"><span>Slack Webhook URL</span></div>
+                                <div class="settings-label"><span>Slack Webhook URL</span><small>Optional: mirror notifications to a Slack channel</small></div>
                                 <input id="slackWebhook" type="text" placeholder="https://hooks.slack.com/services/..." class="apple-input" style="width:320px;">
                             </div>
-                            <div class="settings-row">
-                                <div class="settings-label"><span>Email Recipient</span></div>
-                                <input id="emailTo" type="email" placeholder="user@company.com" class="apple-input" style="width:320px;">
+                            <div class="settings-row" style="display:flex; align-items:center; gap:24px;">
+                                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" id="notifyOnComplete" style="accent-color:var(--apple-green);"> Notify on run complete</label>
+                                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" id="notifyOnError" style="accent-color:var(--apple-red);"> Notify on run error</label>
                             </div>
                         </div>
-                        <div style="display:flex; gap:10px;">
+                        <div style="display:flex; gap:10px; margin-bottom:16px;">
                             <button class="btn-apple btn-apple-primary btn-sm" onclick="saveNotifications()">Save Alerts</button>
                             <button class="btn-apple btn-apple-secondary btn-sm" onclick="testNotification()">Test Integration</button>
+                            <button class="btn-apple btn-apple-danger btn-sm" onclick="clearNotifications()">Clear History</button>
                         </div>
+                        <div class="card-title" style="font-size:14px; margin-bottom:10px;">Notification History</div>
+                        <div id="notificationList" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;"></div>
+                    </div>
                     </div>
 
                     <div class="apple-card settings-panel" id="manual-setup" data-settings-panel="manual">
@@ -2824,7 +2829,11 @@
 
     // Notifications
     async function saveNotifications() {
-        const body = { slack_webhook: document.getElementById('slackWebhook').value, email_to: document.getElementById('emailTo').value };
+        const body = {
+            slack_webhook: document.getElementById('slackWebhook').value,
+            on_complete: document.getElementById('notifyOnComplete').checked,
+            on_error: document.getElementById('notifyOnError').checked,
+        };
         await fetch('/api/notifications', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
         toast('Alerts saved', 'info');
     }
@@ -2834,7 +2843,42 @@
         if (!resp.ok) return;
         const data = await resp.json();
         document.getElementById('slackWebhook').value = data.slack_webhook || '';
-        document.getElementById('emailTo').value = data.email_to || '';
+        document.getElementById('notifyOnComplete').checked = !!data.on_complete;
+        document.getElementById('notifyOnError').checked = !!data.on_error;
+        renderNotifications(data.notifications || []);
+    }
+
+    function renderNotifications(items) {
+        const list = document.getElementById('notificationList');
+        if (!list) return;
+        if (!items.length) {
+            list.innerHTML = '<div style="font-size:13px; color:var(--text-tertiary); padding:12px;">No notifications yet. Run the pipeline to see run events here.</div>';
+            return;
+        }
+        list.innerHTML = '';
+        items.forEach(n => {
+            const row = document.createElement('div');
+            const color = n.level === 'success' ? 'var(--apple-green)' : (n.level === 'error' ? 'var(--apple-red)' : 'var(--apple-blue)');
+            let ts = '';
+            if (n.ts) {
+                const d = new Date(n.ts);
+                if (!isNaN(d)) { const p = d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}); ts = p; }
+            }
+            row.style.cssText = 'display:flex; gap:10px; align-items:flex-start; padding:10px 12px; background:#f5f5f7; border:1px solid var(--border-light); border-radius:10px; font-size:13px;';
+            row.innerHTML =
+                '<span style="flex:none; width:9px; height:9px; border-radius:50%; margin-top:5px; background:' + color + ';"></span>' +
+                '<div style="flex:1;"><div style="font-weight:600; color:var(--text-primary); word-break:break-word;"></div>' +
+                '<div style="font-size:11px; color:var(--text-tertiary); margin-top:2px;"></div></div>';
+            row.children[1].children[0].textContent = n.message || '';
+            row.children[1].children[1].textContent = ts;
+            list.appendChild(row);
+        });
+    }
+
+    async function clearNotifications() {
+        await fetch('/api/notifications/clear', { method: 'POST' });
+        renderNotifications([]);
+        toast('Notification history cleared', 'info');
     }
 
     let customTopics = [];
