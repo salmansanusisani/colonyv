@@ -33,5 +33,30 @@
     "url": "https://hnrss.org/best?q=AI+OR+LLM+OR+GPT+OR+crypto+OR+blockchain&count=15",
     "category": "tech",
     "enabled": true
+  },
+  {
+    "url": "https://www.tomshardware.com/feeds/all",
+    "category": "hardware",
+    "enabled": true
+  },
+  {
+    "url": "https://wccftech.com/feed/",
+    "category": "hardware",
+    "enabled": true
+  },
+  {
+    "url": "https://www.guru3d.com/rss.xml",
+    "category": "hardware",
+    "enabled": true
+  },
+  {
+    "url": "https://www.engadget.com/rss.xml",
+    "category": "tech",
+    "enabled": true
+  },
+  {
+    "url": "https://feeds.arstechnica.com/arstechnica/index",
+    "category": "tech",
+    "enabled": true
   }
 ]

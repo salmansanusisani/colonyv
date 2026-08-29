@@ -37,6 +37,22 @@ DEFAULT_FEEDS = [
 
 FEEDS_PATH = Path(__file__).resolve().parent / "feeds.json"
 
+
+def build_feed_list(topic_prompt: str, baseline_feeds: list) -> tuple[list, str]:
+    """Topic mode feed list: the topic's Google News search feed first, then all
+    enabled baseline feeds as backfill so discovery keeps producing when the
+    topic feed is dry."""
+    import urllib.parse
+    encoded_topic = urllib.parse.quote(topic_prompt)
+    topic_feed = {
+        "url": f"https://news.google.com/rss/search?q={encoded_topic}&hl=en-US&gl=US&ceid=US:en",
+        "category": "topic",
+        "enabled": True,
+    }
+    backfill = [f for f in baseline_feeds if f.get("enabled", True) is not False]
+    note = f"[info] Topic feed for '{topic_prompt}' + {len(backfill)} backfill feeds"
+    return [topic_feed] + backfill, note
+
 LLM_MODEL_ID = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
 LLM_MAX_TOKENS = 4000
 MAX_RETRIES = 3
@@ -290,15 +306,8 @@ def main():
 
     topic_prompt = os.environ.get("COLONY_TOPIC_PROMPT", "").strip()
     if topic_prompt:
-        import urllib.parse
-        encoded_topic = urllib.parse.quote(topic_prompt)
-        feeds = [{
-            "name": f"Trending: {topic_prompt}",
-            "url": f"https://news.google.com/rss/search?q={encoded_topic}&hl=en-US&gl=US&ceid=US:en",
-            "category": "trending",
-            "enabled": True
-        }]
-        print(f"[info] Using exclusive search feed for topic: {topic_prompt}", flush=True)
+        feeds, note = build_feed_list(topic_prompt, feeds)
+        print(note, flush=True)
 
     print(f"[1/3] Fetching from {len(feeds)} RSS feeds...", flush=True)
     entries = fetch_entries(feeds, max_per_feed=50)
