@@ -161,6 +161,9 @@
         .agent-node { min-width:0; padding:15px 12px; border:1px solid var(--border-light); border-radius:15px; background:rgba(255,255,255,.88); transition:all .35s ease; }
         .agent-node.active { border-color:var(--apple-blue); box-shadow:0 0 0 3px rgba(0,113,227,.1), 0 10px 24px rgba(0,113,227,.12); transform:translateY(-4px); }
         .agent-node.complete { border-color:rgba(52,199,89,.35); background:rgba(52,199,89,.05); }
+        .agent-node.paused { border-color:rgba(255,204,0,.55); box-shadow:0 0 0 3px rgba(255,204,0,.15); }
+        .agent-node.paused .agent-node-icon { color:#fff; background:var(--apple-amber); }
+        .agent-node.paused .agent-node-status { color:var(--apple-amber); }
         .agent-node.pending { border-color:var(--border-light); opacity:0.6; }
         .agent-node.failed { border-color:rgba(255,59,48,.35); background:rgba(255,59,48,.04); }
         .agent-node-icon { width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:10px; background:#f1f5f9; color:var(--text-secondary); margin-bottom:12px; }
@@ -173,6 +176,8 @@
         .agent-node.active .agent-node-status { color:var(--apple-blue); }
         .agent-node.complete .agent-node-status { color:var(--apple-green); }
         .agent-node.failed .agent-node-status { color:var(--apple-red); }
+        .agent-live.paused { color:var(--apple-amber); }
+        .agent-live.paused::before { background:var(--apple-amber); box-shadow:0 0 0 5px rgba(255,149,0,.14); animation:none; }
         .terminal-toggle { display:inline-flex; align-items:center; gap:8px; margin-top:16px; border:0; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:12px; font-weight:700; }
         .terminal-toggle:hover { color:var(--apple-blue); }
         .terminal-toggle svg { width:15px; }
@@ -245,6 +250,12 @@
             background-color: var(--apple-green);
             box-shadow: 0 0 10px var(--apple-green);
             animation: pulseDot 1.2s infinite;
+        }
+
+        .status-dot.paused {
+            background-color: var(--apple-amber);
+            box-shadow: 0 0 10px var(--apple-amber);
+            animation: none;
         }
 
         @keyframes pulseDot {
@@ -2126,7 +2137,7 @@
         }
 
         if (s.running) {
-            dot.className = 'status-dot active';
+            dot.className = s.paused ? 'status-dot paused' : 'status-dot active';
             text.textContent = s.paused ? 'Paused' : 'Running (' + (s.current_step || '...') + ')';
 
             cancelAgentReset();
@@ -2143,6 +2154,11 @@
             document.getElementById('stepText').textContent =
                 `${s.current_step} (${s.content_done}/${s.content_count} pieces of content)`;
             document.getElementById('runHeading').textContent = s.paused ? 'Paused' : 'Running';
+            const liveEl = document.getElementById('agentLive');
+            if (liveEl) {
+                liveEl.textContent = s.paused ? 'Paused' : 'Live system';
+                liveEl.classList.toggle('paused', !!s.paused);
+            }
 
             if (s.elapsed !== undefined) {
                 currentElapsed = Math.floor(s.elapsed);

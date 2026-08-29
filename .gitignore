@@ -18,3 +18,4 @@ agents/publisher/youtube_token.json
 *.log
 .env
 config/settings.json
+config/notifications.json
