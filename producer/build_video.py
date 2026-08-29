@@ -73,6 +73,14 @@ MAX_AUTO_ILLUSTRATIONS = 6
 MIN_AUTO_ILLUSTRATIONS = 2
 CHANNEL_HANDLE = os.environ.get("COLONYV_CHANNEL_HANDLE", "@colonyv")
 
+# Background bed under every render. The narration always wins the mix: the
+# music is looped, low-passed and mixed at ~13% so the voice stays clearly on
+# top. Point COLONYV_BACKGROUND_AUDIO at the track (default: <repo>/background_sound.mp3).
+BACKGROUND_AUDIO = os.environ.get(
+    "COLONYV_BACKGROUND_AUDIO", str(PROJECT_ROOT / "background_sound.mp3")
+)
+BACKGROUND_VOLUME = float(os.environ.get("COLONYV_BACKGROUND_VOLUME", "0.13"))
+
 
 def slug(name: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9_]+", "_", (name or "").strip()).strip("_")
@@ -154,6 +162,59 @@ def measure_duration_seconds(path: Path) -> float | None:
             FileNotFoundError, ValueError):
         print(f"  [warn] ffprobe unavailable, estimating duration for {path.name}")
         return None
+
+
+def mix_background_audio(video_path: Path, duration_s: float | None,
+                         audio_source: str | None = None,
+                         volume: float | None = None) -> None:
+    """Loop the background bed under the rendered video's audio track.
+
+    The narration is written at full level, so the background is mixed at a
+    modest fraction (default ~13%) and low-passed to sit underneath it without
+    muddying the voice. A missing source or a broken ffmpeg mix degrades softly:
+    the narration-only render stays as the output.
+    """
+    source = Path(audio_source or BACKGROUND_AUDIO)
+    if not source.exists():
+        print(f"  [warn] background audio not found: {source} (skipping bed)")
+        return
+    track_seconds = measure_duration_seconds(source)
+    if not track_seconds or track_seconds < 0.5:
+        print("  [warn] background audio unreadable (skipping bed)")
+        return
+
+    duration = duration_s or 0.0
+    if duration <= 0:
+        duration = measure_duration_seconds(video_path) or track_seconds
+    if duration < 0.5:
+        print("  [warn] cannot measure video duration (skipping bed)")
+        return
+
+    level = volume if volume is not None else BACKGROUND_VOLUME
+    mixed = video_path.with_suffix(video_path.suffix + ".bg.mp4")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(video_path), "-i", str(source),
+             "-filter_complex",
+             f"[1:a]aloop=loop=-1:size=2e9,atrim=0:{duration},"
+             f"lowpass=f=4000,volume={level},"
+             f"afade=t=in:st=0.0:d=0.8,afade=t=out:st={max(0.0, duration - 1.5)}:d=1.5[bg];"
+             f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0[out]",
+             "-map", "0:v", "-map", "[out]", "-c:v", "copy",
+             "-c:a", "aac", "-b:a", "192k", "-shortest", str(mixed)],
+            check=True, capture_output=True, text=True, timeout=300,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            FileNotFoundError):
+        print("  [warn] background mix failed, keeping narration-only audio")
+        if mixed.exists():
+            mixed.unlink()
+        return
+
+    if mixed.exists() and mixed.stat().st_size > 0:
+        video_path.unlink(missing_ok=True)
+        mixed.rename(video_path)
+        print(f"  background bed: '{source.name}' at {int(level * 100)}% under narration")
 
 
 # ---------------------------------------------------------------------------
@@ -690,6 +751,10 @@ async def build_video(
         )
     if result.returncode != 0:
         raise RuntimeError(f"Remotion render failed with code {result.returncode}")
+
+    # Narration is the master clock: every shot duration was derived from its
+    # audio, so the video's total length is known before the bed is looped.
+    mix_background_audio(Path(output), duration_s=total_s)
 
     size_mb = Path(output).stat().st_size / 1024 / 1024 if Path(output).exists() else 0
     print(f"\nDone: {output} ({size_mb:.1f} MB, {total_s:.1f}s)")
