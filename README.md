@@ -59,7 +59,7 @@ Cloud Run dashboard/API -> Google ADK production director -> Gemini on Vertex AI
 | 3 | **Scriptwriter** | Writes hook/body/CTA and proposes visual beats, using only claims research verified | `*_script.json` |
 | 4 | **Art Director** | Designs this specific episode: concept, semantic palette, illustration style contract, and a per-shot composition and illustration brief | `*_visual_plan.json` |
 | 5 | **Visual Producer** | Narrates with TTS, measures real audio durations, generates illustrations, and renders the composition with Remotion | `*.mp4` |
-| 6 | **Publisher** | OAuth2 upload to YouTube with generated title, description, and tags. The publication gate reports its verdict but does not abort the run — see below | YouTube URL |
+| 6 | **Publisher** | OAuth2 upload to YouTube with generated title, description, and tags. A story only counts as produced when the upload actually succeeds | YouTube URL |
 | 7 | **Analyst** | Reviews the finished run and writes learned signals back into Discovery and Scriptwriter prompts | `analyst_output.json` |
 
 ### How a video is designed
@@ -97,7 +97,7 @@ independent layers.
   content-hash cached
 - **TTS**: edge-tts (`en-US-AndrewNeural`), measured with `ffprobe`
 - **Video**: Remotion 4 + headless Chromium, 1080x1920 at 30fps
-- **Dashboard**: FastAPI + Jinja2 + WebSocket (10-tab SPA)
+- **Dashboard**: FastAPI + Jinja2 + WebSocket SPA with cookie-session auth
 - **State**: Firestore run state and trace
 - **YouTube**: Google API OAuth2 with auto token refresh
 - **Framework**: Google ADK
@@ -142,20 +142,15 @@ source .venv/bin/activate
 python3 -m uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
 ```
 
-Open **http://localhost:8000** — 10 tabs:
+Open **http://localhost:8000**. If `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set
+you are asked to sign in first (see [Securing the dashboard](#securing-the-dashboard)).
 
-| Tab | Purpose |
-|-----|---------|
-| **Pipeline** | Start/stop pipeline, live terminal logs, progress bar |
-| **Past Runs** | History of all runs, click for per-story detail modal |
-| **Analytics** | Charts: stories/day, avg score, YouTube views, success rate |
-| **YouTube** | Connect/disconnect channel, view uploaded videos, retry failed |
-| **Feeds** | Edit/add/remove RSS feeds, enable/disable per feed |
-| **Scheduler** | Set auto-run interval (hourly/daily/weekly), next run time |
-| **Alerts** | Configure Slack webhook or email notifications |
-| **Costs** | LLM call counts, estimated spend per run |
-| **Logs** | Full terminal output from every agent (streams live via WebSocket) |
-| **Manual** | Architecture guide, tab-by-tab docs, tech stack reference |
+The UI has two views — **Dashboard** and **Settings**:
+
+| View | Contains |
+|------|----------|
+| **Dashboard** | Run/Pause/Resume/Stop, the live Agent Workspace (6 stage cards), progress and elapsed time, live WebSocket log, recent runs, analytics, content performance and cost panels |
+| **Settings** | Six panels: **AI Model**, **Content Focus**, **RSS Sources**, **YouTube**, **Pipeline** (incl. the auto-run schedule), **Notifications**, and **Manual** — an in-app owner's guide documenting every setting |
 
 ### CLI
 
@@ -236,10 +231,10 @@ colonyv/
 │   └── tools/                       # pipeline tools + editorial gates
 ├── dashboard/
 │   ├── app.py                       # FastAPI backend + pipeline runner
-│   └── templates/dashboard.html     # 10-tab SPA
+│   └── templates/dashboard.html     # Dashboard + Settings SPA
 ├── contracts/                       # JSON schemas for every agent boundary
 │   └── visual_plan.schema.json      # The Art Director's output contract
-├── tests/                           # 65 tests
+├── tests/                           # 137 tests
 ├── Dockerfile                       # Python + Node + Chromium + FFmpeg
 ├── requirements.txt
 └── README.md
@@ -251,7 +246,7 @@ Judges and evaluators can verify COLONY-V locally using the following reproducib
 
 ### 1. Run Automated Test Suite (Pytest)
 
-The repository includes 65 unit and integration tests covering JSON contract
+The repository includes 137 unit and integration tests covering JSON contract
 validation, agent schemas, publication policy gates, runtime pause/resume/stop
 mechanics, and the visual system — Art Director sanitisation and layout repair,
 illustration budget enforcement, per-layout aspect selection, and ground-tone
@@ -330,30 +325,70 @@ Then navigate to **`http://localhost:8000`** in your browser.
 | `COLONYV_CACHE_BUCKET` | No | Cloud Storage bucket backing the illustration cache. Without it the cache is local only, which on Cloud Run means re-paying for identical images after every deploy |
 | `COLONYV_CACHE_PREFIX` | No | Object prefix inside that bucket (default `illustrations`) |
 | `COLONYV_RENDER_SMOKE` | No | Set to `1` to enable the per-layout render smoke test |
-| `PRODUCER_TIMEOUT` | No | Render timeout in seconds (default `1800`) |
+| `PRODUCER_TIMEOUT` | No | Render timeout in seconds (default `1800`), enforced by both the orchestrator and the renderer |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Deployed | Enable dashboard login. Auth is off when either is missing — see [Securing the dashboard](#securing-the-dashboard) |
+| `SESSION_SECRET` | Deployed | HMAC key for session cookies; use the same value across instances and restarts |
+| `COLONYV_LLM_TIMEOUT_MS` | No | Per-request Gemini deadline in ms (default `120000`) |
+| `COLONYV_IMAGE_TIMEOUT_MS` | No | Per-request illustration deadline in ms (default `120000`) |
+| `COLONYV_FEED_TIMEOUT` | No | RSS fetch timeout in seconds (default `15`) |
+| `COLONYV_PUBLISH_TIMEOUT` | No | YouTube upload timeout in seconds (default `600`) |
+| `COLONYV_TTS_ATTEMPTS` | No | Narration retry attempts before failing a video (default `3`) |
+| `COLONYV_PUBSUB_TOKEN` | No | Bearer token required by the Pub/Sub stage webhook |
 
 ## Dashboard Configuration
 
-Open **Setup & Settings** before running the pipeline. The settings are stored locally in `config/settings.json`, which is ignored by git:
+Open **Settings** before running the pipeline. Settings are stored in `config/settings.json`, which is ignored by git:
 
 - `videos_per_run`: number of stories processed for each manual or scheduled run
-- `skip_publish`: render-only mode when enabled
-- YouTube publishing is public by design for dashboard runs.
 - `max_duration_seconds`: narration target passed to the scriptwriter
-- `model.provider`: currently LiteLLM-compatible providers
-- `model.model_id`: provider model identifier
-- `model.api_keys`: separate provider keys stored locally and masked in the dashboard API
-- content categories, brand voice, RSS feeds, scheduler, and notifications
+- `scheduler.interval_hours`: how often the agent runs itself once armed
+- `content.active_topic`: the niche Discovery searches for, plus `custom_topics` and `brand_voice`
+- `model.model_id`: read from `COLONYV_GEMINI_MODEL`; the dashboard shows it read-only
+
+Publishing is an invariant for dashboard runs: they always upload publicly. Use
+the CLI (`--sandbox` / `--skip-publish`) for render-only runs.
 
 Use the dashboard controls as follows:
 
-- **Run Pipeline** starts a new run using the saved settings.
+- **Run Pipeline** starts a new run using the saved settings, and *arms* the scheduler — the interval countdown starts from that moment.
 - **Pause** freezes the active child process and pauses timeout accounting.
 - **Resume** continues the paused process.
-- **Stop Completely** terminates the process tree and marks the run stopped.
+- **Stop Completely** terminates the process tree, marks the run stopped, and *disarms* the scheduler, so no automatic run fires until you press Run again.
+- Starting a run is serialised: a double-click, or Run while a previous run is still stopping, is rejected with 409 instead of launching a second run.
 - The live terminal receives every subprocess line through WebSocket and each run also writes `output/<run_id>/pipeline.log`.
 
-The production agent uses Google Gemini only. The dashboard model screen is now locked to Gemini and the pipeline does not accept other AI providers.
+The production agent uses Google Gemini only. The dashboard model screen is locked to Gemini and the pipeline does not accept other AI providers.
+
+## Securing the dashboard
+
+The dashboard controls a channel that publishes publicly, so a deployed
+instance should never be left open. Auth activates when **both** variables are
+set, and is disabled (open) when either is missing:
+
+| Variable | Purpose |
+|----------|---------|
+| `ADMIN_USERNAME` | The only account that may sign in |
+| `ADMIN_PASSWORD` | Password; hashed with PBKDF2-HMAC-SHA256 (120k iterations) at startup and never stored or logged |
+| `SESSION_SECRET` | HMAC key for the signed session cookie. Set the **same value** everywhere so sessions survive restarts and every instance accepts them; if unset a random per-process key is generated and logins will not persist |
+
+```bash
+export ADMIN_USERNAME="owner"
+export ADMIN_PASSWORD="$(python3 -c 'import secrets;print(secrets.token_urlsafe(16))')"
+export SESSION_SECRET="$(python3 -c 'import secrets;print(secrets.token_hex(32))')"
+```
+
+Sessions last 24 hours in an HttpOnly, SameSite=Lax cookie. Login is rate
+limited to **10 failed attempts** per client IP, followed by a 15-minute
+lockout. The Pub/Sub webhook (`COLONYV_PUBSUB_TOKEN`) and the YouTube OAuth
+callback authenticate separately and stay reachable without a session.
+
+Because run state and the live log live in the serving process, deploy the
+service with `--max-instances=1` so every request sees the same run:
+
+```bash
+gcloud run deploy colonyv --max-instances=1 --min-instances=1 \
+  --set-env-vars ADMIN_USERNAME=owner,ADMIN_PASSWORD=...,SESSION_SECRET=...
+```
 
 ## Google ADK Production Path
 
@@ -368,7 +403,16 @@ python3 scripts/check_gemini.py --vertex
 adk web colonyv_agent
 ```
 
-The ADK Editorial Director exposes `root_agent` (interactive Q&A) and `production_agent` (autonomous production director). The production director's tool suite operates the real production agents — `discover_stories`, `research_story`, `write_script`, `direct_visuals`, `request_render`, `publish_to_youtube`, `analyze_performance` — and the factory driver (`colonyv_agent/factory.py`) runs the full loop with editorial gates (story rejection, research retry/stop, render retry, upload retry). The publication gate never aborts a run: a story that fails verification is re-verified, then the next candidate is tried, and as a last resort the best available video is published anyway.
+The ADK Editorial Director exposes `root_agent` (interactive Q&A) and `production_agent` (autonomous production director). The production director's tool suite operates the real production agents — `discover_stories`, `research_story`, `write_script`, `direct_visuals`, `request_render`, `publish_to_youtube`, `analyze_performance` — and the factory driver (`colonyv_agent/factory.py`) runs the full loop with editorial gates.
+
+The gates are allowed to refuse. A story is **dropped, not downgraded**:
+
+- **Research gate** — a report with zero claims, zero fetched sources, or two or more unresolved contradictions is unusable. Research is retried once, then the story is abandoned.
+- **Publication gate** — evaluated per story before any render budget is spent.
+- **Render gate** — the MP4 must exist *and* be larger than 100 KB. A truncated encode that still exits 0 is rejected and never uploaded.
+- **Upload gate** — up to three attempts; a story counts as produced only when an upload really succeeded.
+
+When a story is dropped the factory returns to Discovery for another candidate (up to three discovery passes per run) rather than publishing something weaker. There is no "publish anyway" fallback.
 
 See [README_GOOGLE_CLOUD.md](README_GOOGLE_CLOUD.md) for Vertex AI, Firestore, Docker, and Cloud Run setup.
 
