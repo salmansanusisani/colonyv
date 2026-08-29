@@ -19,6 +19,16 @@ from pathlib import Path
 
 import feedparser
 import jsonschema
+import requests
+
+# feedparser.parse(url) fetches with no timeout whatsoever (it inherits
+# socket.getdefaulttimeout(), which is None), so a single unresponsive RSS host
+# hangs story discovery — the first step of every run — indefinitely.
+FEED_TIMEOUT_SECONDS = float(os.environ.get("COLONYV_FEED_TIMEOUT", "15"))
+FEED_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0 Safari/537.36 ColonyV/1.0"
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -138,7 +148,13 @@ def fetch_entries(feeds, max_per_feed=10):
             continue
         category = feed_info["category"]
         try:
-            d = feedparser.parse(url)
+            response = requests.get(
+                url,
+                timeout=FEED_TIMEOUT_SECONDS,
+                headers={"User-Agent": FEED_USER_AGENT},
+            )
+            response.raise_for_status()
+            d = feedparser.parse(response.content)
             for entry in d.entries[:max_per_feed]:
                 entry_url = entry.get("link", "")
                 if entry_url and entry_url not in seen_urls:

@@ -111,10 +111,35 @@ def validate_script(data: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 async def generate_tts(text: str, out_path: Path) -> None:
+    """Narrate one line, retrying transient failures.
+
+    edge-tts talks to an unofficial Microsoft endpoint that intermittently drops
+    connections. Narration is the one stage the rest of the pipeline cannot
+    degrade around (every shot duration is measured from these files), so a
+    single hiccup used to abort the whole video. Retry with backoff, and fail
+    with a message that names the real cause.
+    """
     import edge_tts
 
     clean = (text or "").strip() or "..."
-    await edge_tts.Communicate(clean, VOICE).save(str(out_path))
+    attempts = int(os.environ.get("COLONYV_TTS_ATTEMPTS", "3"))
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            await edge_tts.Communicate(clean, VOICE).save(str(out_path))
+            if out_path.exists() and out_path.stat().st_size > 0:
+                return
+            raise RuntimeError("edge-tts wrote an empty audio file")
+        except Exception as exc:  # noqa: BLE001 - retried and re-raised below
+            last_error = exc
+            out_path.unlink(missing_ok=True)
+            if attempt < attempts:
+                print(f"  [warn] narration attempt {attempt}/{attempts} failed "
+                      f"({type(exc).__name__}: {exc}); retrying")
+                await asyncio.sleep(2 ** attempt)
+    raise RuntimeError(
+        f"Narration failed after {attempts} attempts for {out_path.name}: {last_error}"
+    )
 
 
 def measure_duration_seconds(path: Path) -> float | None:
@@ -122,10 +147,11 @@ def measure_duration_seconds(path: Path) -> float | None:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, check=True, timeout=30,
         )
         return float(result.stdout.strip())
-    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            FileNotFoundError, ValueError):
         print(f"  [warn] ffprobe unavailable, estimating duration for {path.name}")
         return None
 
@@ -652,7 +678,16 @@ async def build_video(
     if Path(chromium).exists():
         cmd += ["--browser-executable", chromium]
 
-    result = subprocess.run(cmd, cwd=str(PRODUCER_DIR))
+    # A Chromium launch can hang without printing anything, and the orchestrator
+    # cannot kill a silent child reliably, so bound the render here too.
+    render_timeout = int(os.environ.get("PRODUCER_TIMEOUT", "1800"))
+    try:
+        result = subprocess.run(cmd, cwd=str(PRODUCER_DIR), timeout=render_timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"Remotion render exceeded {render_timeout}s and was terminated "
+            "(set PRODUCER_TIMEOUT to allow longer renders)"
+        )
     if result.returncode != 0:
         raise RuntimeError(f"Remotion render failed with code {result.returncode}")
 

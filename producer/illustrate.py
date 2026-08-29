@@ -57,6 +57,10 @@ CACHE_BUCKET = os.environ.get("COLONYV_CACHE_BUCKET", "").strip()
 CACHE_PREFIX = os.environ.get("COLONYV_CACHE_PREFIX", "illustrations").strip("/")
 
 IMAGE_MODEL = os.environ.get("COLONYV_IMAGE_MODEL", "gemini-2.5-flash-image")
+
+# Without an explicit deadline google-genai waits forever, so a single stalled
+# image request freezes the whole render at "rendering illustrations".
+_IMAGE_TIMEOUT_MS = int(os.environ.get("COLONYV_IMAGE_TIMEOUT_MS", "120000"))
 ASPECT_RATIO = "9:16"
 # Bump when post-processing changes, to invalidate cached plates.
 CACHE_VERSION = 5
@@ -284,6 +288,7 @@ def _image_client():
             vertexai=True,
             project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
             location=location,
+            http_options={"timeout": _IMAGE_TIMEOUT_MS},
         )
 
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
@@ -291,7 +296,7 @@ def _image_client():
         raise RuntimeError(
             "Set GOOGLE_API_KEY or configure Vertex AI with GOOGLE_CLOUD_PROJECT"
         )
-    return genai.Client(api_key=api_key)
+    return genai.Client(api_key=api_key, http_options={"timeout": _IMAGE_TIMEOUT_MS})
 
 
 def _generate_once(client, full_prompt: str, aspect: str = DEFAULT_ASPECT) -> bytes | None:

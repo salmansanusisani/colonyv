@@ -178,8 +178,13 @@ def run_factory(stories: int) -> dict[str, Any]:
                 continue
             break
 
-        if not render or not render.get("success") or not render.get("output_exists"):
-            runtime.activity("render", "failed", "Render failed for this content")
+        # The gate is the authority here: it also rejects a file that exists but is
+        # too small to be a real video (a truncated encode still exits 0). Checking
+        # `render` by hand instead let a 50 KB MP4 through to a public upload.
+        if not render_gate or render_gate["decision"] != "continue":
+            reason = (render_gate or {}).get("reason") or "Render failed for this content"
+            runtime.activity("render", "failed", reason)
+            runtime.log(f"[factory] render rejected: {reason}")
             continue
 
         if not runtime.checkpoint(f"content '{story['title'][:40]}' rendered"):
@@ -194,6 +199,9 @@ def run_factory(stories: int) -> dict[str, Any]:
 
         ctx.state["publish_privacy"] = "public"
 
+        upload_ok = False
+        upload_skipped = False
+        video_id = ""
         for upload_attempt in range(1, 4):
             if not runtime.checkpoint(f"upload attempt {upload_attempt}/3"):
                 runtime.activity("autonomous", "stopped", "Run stopped by operator before upload")
@@ -202,14 +210,25 @@ def run_factory(stories: int) -> dict[str, Any]:
             upload = publish_to_youtube(ctx)
             if upload.get("skipped"):
                 runtime.log(f"[publish] skipping upload ({upload.get('reason')})")
+                upload_skipped = True
                 break
             up = evaluate_upload_result(
                 upload.get("success", False), upload.get("video_id", ""), upload_attempt=upload_attempt
             )
             _policy(up)
             if up["decision"] == "complete":
+                upload_ok = True
+                video_id = upload.get("video_id", "")
                 break
             runtime.log(f"[publish] upload retry {upload_attempt}/3 ({up['reason']})")
+
+        # Only a real upload (or an intentional skip in render-only mode) counts.
+        # Appending unconditionally made three failed uploads report as a
+        # finished story, so the dashboard showed success with nothing published.
+        if not (upload_ok or upload_skipped):
+            runtime.activity("publish", "failed", "Upload failed after 3 attempts")
+            runtime.log(f"[factory] giving up on '{story['title'][:60]}' after 3 failed uploads")
+            continue
 
         produced.append({
             "story_id": story["story_id"],
@@ -217,6 +236,8 @@ def run_factory(stories: int) -> dict[str, Any]:
             "script": script,
             "render": render,
             "video": render.get("mp4_path"),
+            "video_id": video_id,
+            "youtube_url": f"https://youtube.com/watch?v={video_id}" if video_id else "",
         })
         runtime.log(
             f"[factory] content complete: {story['title'][:60]} -> "

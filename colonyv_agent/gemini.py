@@ -13,6 +13,11 @@ from google import genai
 
 MODEL = os.environ.get("COLONYV_GEMINI_MODEL", "gemini-3.5-flash")
 
+# google-genai defaults to no timeout at all, so a stalled TLS connection hangs
+# the stage forever instead of failing and retrying. The orchestrator cannot
+# rescue it either, so every request gets an explicit deadline (milliseconds).
+REQUEST_TIMEOUT_MS = int(os.environ.get("COLONYV_LLM_TIMEOUT_MS", "120000"))
+
 _cached_client = None
 
 
@@ -27,17 +32,19 @@ def client() -> genai.Client:
     global _cached_client
     if _cached_client is not None:
         return _cached_client
+    http_options = {"timeout": REQUEST_TIMEOUT_MS}
     if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() == "true" or os.environ.get("GOOGLE_CLOUD_PROJECT"):
         _cached_client = genai.Client(
             vertexai=True,
             project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
             location=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
+            http_options=http_options,
         )
     else:
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise RuntimeError("Set GOOGLE_API_KEY or configure Vertex AI with GOOGLE_CLOUD_PROJECT")
-        _cached_client = genai.Client(api_key=api_key)
+        _cached_client = genai.Client(api_key=api_key, http_options=http_options)
     return _cached_client
 
 

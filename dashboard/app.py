@@ -464,6 +464,12 @@ def set_agent_activity(key: str, status: str, detail: str) -> None:
 reset_agent_activity()
 
 log_subscribers: list[WebSocket] = []
+
+# Serialises run starts so a double-click (or scheduler + click) cannot launch
+# two production runs, and so a new run never revives a stopping one.
+_RUN_START_LOCK = asyncio.Lock()
+_production_task: "asyncio.Task | None" = None
+_legacy_task: "asyncio.Task | None" = None
 app_loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -581,7 +587,35 @@ async def api_agent_invoke(request: Request):
 
 async def launch_production_run(stories: int, *, source: str = "manual") -> dict[str, Any]:
     """Start a full autonomous production run through the ADK Production Director."""
+    global _production_task
     skip_publish = False
+
+    # Starting a run is serialised. Two things went wrong without this lock:
+    #   * the old `if pipeline_state["running"]` check in the route ran before an
+    #     `await`, so a double-click started several concurrent runs, each
+    #     rendering and uploading its own video;
+    #   * Stop only raises a flag that the factory observes at its next
+    #     checkpoint, and configure() resets that flag, so starting a new run
+    #     while the previous one was still mid-step revived it and published
+    #     twice. We wait for the previous task to actually exit first.
+    async with _RUN_START_LOCK:
+        if pipeline_state["running"]:
+            return {"error": "Pipeline already running", "status": "rejected"}
+
+        previous = _production_task
+        if previous is not None and not previous.done():
+            done, _pending = await asyncio.wait({previous}, timeout=15)
+            if not done:
+                return {
+                    "error": "The previous run is still stopping. Try again in a moment.",
+                    "status": "rejected",
+                }
+
+        return await _begin_production_run(stories, source=source, skip_publish=skip_publish)
+
+
+async def _begin_production_run(stories: int, *, source: str, skip_publish: bool) -> dict[str, Any]:
+    global _production_task
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = f"{run_id}_{uuid.uuid4().hex[:4]}"
@@ -650,7 +684,7 @@ async def launch_production_run(stories: int, *, source: str = "manual") -> dict
         log("Async pipeline scheduled: monitor stage published")
         return {"status": "started", "mode": "adk-async", "run_id": run_id}
 
-    asyncio.create_task(run_production_director(stories))
+    _production_task = asyncio.create_task(run_production_director(stories))
 
     return {"status": "started", "mode": "adk-production", "run_id": run_id}
 
@@ -661,9 +695,6 @@ async def api_agent_run(request: Request):
     global app_loop
     app_loop = asyncio.get_running_loop()
 
-    if pipeline_state["running"]:
-        return JSONResponse({"error": "Pipeline already running"}, 409)
-
     try:
         body = await request.json()
     except Exception:
@@ -671,6 +702,8 @@ async def api_agent_run(request: Request):
     stories = int((body and body.get("stories")) or settings["pipeline"].get("videos_per_run", 1))
 
     result = await launch_production_run(stories, source="manual")
+    if result.get("error"):
+        return JSONResponse(result, 409)
     return JSONResponse(result)
 
 
@@ -878,9 +911,7 @@ async def api_run_detail(run_id: str):
 
 @app.post("/api/pipeline/start")
 async def api_pipeline_start(request: Request):
-    if pipeline_state["running"]:
-        return JSONResponse({"error": "Pipeline already running"}, 409)
-
+    global _legacy_task
     try:
         body = await request.json()
     except Exception:
@@ -892,23 +923,36 @@ async def api_pipeline_start(request: Request):
     if isinstance(body, dict) and "skip_publish" in body:
         skip_publish = bool(body.get("skip_publish")) and body.get("skip_publish") not in (False, 0)
 
-    pipeline_state.update({
-        "running": True,
-        "paused": False,
-        "run_id": f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}",
-        "current_step": "starting",
-        "progress": 0,
-        "logs": [],
-        "content_count": stories,
-        "content_done": 0,
-        "start_time": time.time(),
-        "paused_duration": 0.0,
-        "pause_start": None,
-    })
-    reset_agent_activity()
-    persist_pipeline_state()
+    # Same serialisation as the ADK path: check and claim under one lock, after
+    # every await, so concurrent posts cannot both start a run.
+    async with _RUN_START_LOCK:
+        if pipeline_state["running"]:
+            return JSONResponse({"error": "Pipeline already running"}, 409)
 
-    asyncio.create_task(run_pipeline(stories, skip_publish))
+        previous = _legacy_task
+        if previous is not None and not previous.done():
+            done, _pending = await asyncio.wait({previous}, timeout=15)
+            if not done:
+                return JSONResponse(
+                    {"error": "The previous run is still stopping. Try again in a moment."}, 409)
+
+        pipeline_state.update({
+            "running": True,
+            "paused": False,
+            "run_id": f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}",
+            "current_step": "starting",
+            "progress": 0,
+            "logs": [],
+            "content_count": stories,
+            "content_done": 0,
+            "start_time": time.time(),
+            "paused_duration": 0.0,
+            "pause_start": None,
+        })
+        reset_agent_activity()
+        persist_pipeline_state()
+
+        _legacy_task = asyncio.create_task(run_pipeline(stories, skip_publish))
 
     return {"status": "started", "run_id": pipeline_state["run_id"]}
 

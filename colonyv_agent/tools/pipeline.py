@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import selectors
 import subprocess
 import sys
 import time
@@ -135,29 +136,47 @@ def run_script(
         start = time.monotonic()
         paused_before = runtime.paused_elapsed()
         paused_during = lambda: runtime.paused_elapsed() - paused_before
-        while True:
-            elapsed = (time.monotonic() - start) - paused_during()
-            if elapsed > timeout:
-                os.killpg(proc.pid, 9) if hasattr(os, "killpg") else proc.kill()
-                proc.wait()
-                return subprocess.CompletedProcess(cmd, -9, "\n".join(stdout_lines), "")
-            line = proc.stdout.readline() if proc.stdout else ""
-            if line:
-                stripped = line.strip()
-                if stripped:
-                    runtime.log(f"[{step_label}] {stripped}")
-                    stdout_lines.append(stripped)
-                continue
-            ret = proc.poll()
-            if ret is not None:
-                if proc.stdout:
-                    for line in proc.stdout:
-                        stripped = line.strip()
-                        if stripped:
-                            runtime.log(f"[{step_label}] {stripped}")
-                            stdout_lines.append(stripped)
-                runtime.log(f"[{step_label}] exited {ret}")
-                return subprocess.CompletedProcess(cmd, ret, "\n".join(stdout_lines), "")
+        # Readiness-based reads. A plain readline() blocks until a newline or EOF,
+        # so a child that hangs without printing (stalled Chromium launch, a
+        # socket read with no deadline) never let the loop re-check the timeout
+        # and the run froze forever with no error. select() lets the deadline win.
+        selector = selectors.DefaultSelector()
+        if proc.stdout is not None:
+            selector.register(proc.stdout, selectors.EVENT_READ)
+        try:
+            while True:
+                elapsed = (time.monotonic() - start) - paused_during()
+                if elapsed > timeout:
+                    runtime.log(f"[{step_label}] timed out after {timeout}s; terminating")
+                    try:
+                        os.killpg(proc.pid, 9) if hasattr(os, "killpg") else proc.kill()
+                    except (ProcessLookupError, PermissionError):
+                        proc.kill()
+                    proc.wait()
+                    return subprocess.CompletedProcess(cmd, -9, "\n".join(stdout_lines), "")
+
+                line = ""
+                if selector.get_map() and selector.select(timeout=0.5):
+                    line = proc.stdout.readline() if proc.stdout else ""
+                if line:
+                    stripped = line.strip()
+                    if stripped:
+                        runtime.log(f"[{step_label}] {stripped}")
+                        stdout_lines.append(stripped)
+                    continue
+
+                ret = proc.poll()
+                if ret is not None:
+                    if proc.stdout:
+                        for line in proc.stdout:
+                            stripped = line.strip()
+                            if stripped:
+                                runtime.log(f"[{step_label}] {stripped}")
+                                stdout_lines.append(stripped)
+                    runtime.log(f"[{step_label}] exited {ret}")
+                    return subprocess.CompletedProcess(cmd, ret, "\n".join(stdout_lines), "")
+        finally:
+            selector.close()
     finally:
         runtime.unregister_process(proc)
         proc.wait()
@@ -489,8 +508,12 @@ def publish_to_youtube(tool_context: ToolContext) -> dict[str, Any]:
         "--tags", "ai,tech,news,agents",
         "--privacy", privacy,
     ]
+    # A 14-25 MB upload over conference wifi routinely exceeds two minutes, and
+    # the resumable upload prints no progress for files under its 100 MB chunk
+    # size, so the old 120s deadline killed uploads that were still working.
+    upload_timeout = int(os.environ.get("COLONYV_PUBLISH_TIMEOUT", "600"))
     result = run_script(
-        cmd, cwd=str(AGENTS_DIR), timeout=120, step_label=f"publish-{story_id[:8]}"
+        cmd, cwd=str(AGENTS_DIR), timeout=upload_timeout, step_label=f"publish-{story_id[:8]}"
     )
 
     video_id = ""
@@ -499,7 +522,12 @@ def publish_to_youtube(tool_context: ToolContext) -> dict[str, Any]:
             video_id = line.split("Video ID:")[-1].strip()
             break
 
-    if video_id:
+    # A non-zero exit means the publisher failed after printing the id (thumbnail
+    # or playlist step, quota, rejected upload). Scraping stdout alone reported
+    # those as successes.
+    succeeded = bool(video_id) and result.returncode == 0
+
+    if succeeded:
         tool_context.state["video_id"] = video_id
         suffix = "" if privacy == "public" else f" ({privacy})"
         runtime.activity(
@@ -509,10 +537,11 @@ def publish_to_youtube(tool_context: ToolContext) -> dict[str, Any]:
         runtime.activity("publish", "failed", f"Upload exit {result.returncode}")
 
     return {
-        "success": bool(video_id),
+        "success": succeeded,
         "video_id": video_id,
         "privacy": privacy,
         "story_id": story_id,
+        "returncode": result.returncode,
     }
 
 
