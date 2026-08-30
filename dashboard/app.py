@@ -847,6 +847,7 @@ async def run_production_director(stories: int):
         pipeline_state["start_time"] = None
         pipeline_state["last_completed_at"] = datetime.now().isoformat()
         persist_pipeline_state(force=True)
+        _persist_run_summary()
         schedule_board_cooldown()
 
         if scheduler_config.get("enabled") and scheduler_config.get("next_run"):
@@ -954,35 +955,131 @@ async def api_pubsub_run_stage(request: Request):
         return JSONResponse({"error": str(e)}, 500)
 
 
+def _summarize_local_dir(run_dir: Path) -> dict | None:
+    """Read one run folder into the shape the Runs table and Analytics need."""
+    if not run_dir.is_dir():
+        return None
+    files = list(run_dir.glob("*"))
+    mp4s = [f for f in files if f.suffix == ".mp4"]
+    monitors = [f for f in files if f.name.endswith("_monitor.json")]
+    scripts = [f for f in files if f.name.endswith("_script.json")]
+    researches = [f for f in files if f.name.endswith("_research.json")]
+
+    total_size = sum(f.stat().st_size for f in mp4s)
+    topics = []
+    for mf in monitors:
+        try:
+            with open(mf) as f:
+                topics.append(json.load(f).get("title", "")[:50])
+        except Exception:
+            pass
+
+    return {
+        "run_id": run_dir.name,
+        "timestamp": run_dir.name,
+        "date": run_dir.name[:8],
+        "content": len(monitors) or 1,
+        "researched": len(researches),
+        "scripted": len(scripts),
+        "rendered": len(mp4s),
+        "video_size_mb": round(total_size / 1024 / 1024, 1),
+        "has_video": len(mp4s) > 0,
+        "topics": topics,
+    }
+
+
+def _build_run_summary() -> dict | None:
+    """Durable record of the finished/stopped run, saved to Firestore so the
+    dashboard's history and charts survive instance recycles. When the run
+    folder is already gone (mid-cycle recycles) it falls back to state fields."""
+    run_id = pipeline_state.get("run_id")
+    if not run_id:
+        return None
+    summary = _summarize_local_dir(OUTPUT_DIR / run_id)
+    if summary is None:
+        summary = {
+            "run_id": run_id,
+            "timestamp": run_id,
+            "date": run_id[:8],
+            "content": pipeline_state.get("content_count") or 1,
+            "researched": 0,
+            "scripted": 0,
+            "rendered": 1 if pipeline_state.get("current_step") == "complete" else 0,
+            "video_size_mb": 0.0,
+            "has_video": pipeline_state.get("current_step") == "complete",
+            "topics": [],
+        }
+    story_state = pipeline_state.get("stage_state") or {}
+    topic = pipeline_state.get("run_topic") or story_state.get("topic") or ""
+    summary.setdefault("topic", topic)
+    if not summary.get("topics") and topic:
+        summary["topics"] = [str(topic)[:50]]
+    summary["status"] = pipeline_state.get("current_step", "unknown")
+    summary["video_id"] = str(story_state.get("video_id") or pipeline_state.get("video_id") or "")
+    return summary
+
+
+def _persist_run_summary() -> None:
+    if not CLOUD_STATE:
+        return
+    run_id = pipeline_state.get("run_id")
+    summary = _build_run_summary()
+    if not run_id or not summary:
+        return
+    try:
+        CLOUD_STATE.save_run_summary(run_id, summary)
+    except Exception as exc:
+        print(f"[cloud-state] run summary persistence failed: {exc}", flush=True)
+
+
+def _firestore_runs() -> list[dict]:
+    if not CLOUD_STATE:
+        return []
+    try:
+        return CLOUD_STATE.list_run_summaries() or []
+    except Exception as exc:
+        print(f"[cloud-state] reading run summaries failed: {exc}", flush=True)
+        return []
+
+
+def _backfilled_cloud_runs() -> list[dict]:
+    """Runs that predate summaries, inferred from their saved pipeline state."""
+    if not CLOUD_STATE:
+        return []
+    try:
+        states = CLOUD_STATE.list_run_states()
+    except Exception as exc:
+        print(f"[cloud-state] reading run states failed: {exc}", flush=True)
+        return []
+    return [
+        {
+            "run_id": s.get("run_id") or "",
+            "timestamp": s.get("run_id") or "",
+            "date": (s.get("run_id") or "00000000")[:8],
+            "content": s.get("content_count") or 1,
+            "researched": 0,
+            "scripted": 0,
+            "rendered": 1 if (s.get("current_step") or "").lower() == "complete" else 0,
+            "video_size_mb": 0.0,
+            "has_video": (s.get("current_step") or "").lower() == "complete",
+            "status": s.get("current_step", "unknown"),
+            "topic": s.get("run_topic") or "",
+        }
+        for s in states
+        if s.get("run_id")
+    ]
+
+
 @app.get("/api/runs")
 async def api_runs(limit: int = 20):
-    runs = []
-    if OUTPUT_DIR.exists():
-        for run_dir in sorted(OUTPUT_DIR.iterdir(), reverse=True):
-            if not run_dir.is_dir():
-                continue
-            summary_path = run_dir / "run_summary.json"
-            strands_path = run_dir / "strands_result.json"
-
-            files = list(run_dir.glob("*"))
-            mp4s = [f for f in files if f.suffix == ".mp4"]
-            monitors = [f for f in files if f.name.endswith("_monitor.json")]
-            scripts = [f for f in files if f.name.endswith("_script.json")]
-            researches = [f for f in files if f.name.endswith("_research.json")]
-
-            total_size = sum(f.stat().st_size for f in mp4s)
-
-            runs.append({
-                "run_id": run_dir.name,
-                "timestamp": run_dir.name,
-                "content": len(monitors),
-                "researched": len(researches),
-                "scripted": len(scripts),
-                "rendered": len(mp4s),
-                "video_size_mb": round(total_size / 1024 / 1024, 1),
-                "has_video": len(mp4s) > 0,
-            })
-
+    by_id: dict[str, dict] = {}
+    for run_dir in sorted(OUTPUT_DIR.iterdir(), reverse=True) if OUTPUT_DIR.exists() else []:
+        summary = _summarize_local_dir(run_dir)
+        if summary:
+            by_id[summary["run_id"]] = summary
+    for summary in _firestore_runs() + _backfilled_cloud_runs():
+        by_id.setdefault(summary["run_id"], summary)
+    runs = sorted(by_id.values(), key=lambda r: r["run_id"], reverse=True)
     return {"runs": runs[:limit]}
 
 
@@ -1117,6 +1214,7 @@ async def api_pipeline_stop():
     # A stopped run returns the board to waiting on the same delay as a finished
     # one, so a terminated cycle does not sit frozen mid-stage forever.
     schedule_board_cooldown()
+    _persist_run_summary()
     from colonyv_agent import pipeline_runtime
     pipeline_runtime.request_stop()
     proc = pipeline_state.get("current_process")
@@ -1227,26 +1325,44 @@ async def api_analytics():
         for run_dir in sorted(OUTPUT_DIR.iterdir()):
             if not run_dir.is_dir():
                 continue
+            monitor_titles = []
             monitors = list(run_dir.glob("*_monitor.json"))
             mp4s = list(run_dir.glob("*.mp4"))
             total_size = sum(f.stat().st_size for f in mp4s)
-
-            topics = []
             for mf in monitors:
                 try:
                     with open(mf) as f:
-                        d = json.load(f)
-                    topics.append(d.get("title", "")[:50])
+                        monitor_titles.append(json.load(f).get("title", "")[:50])
                 except Exception:
                     pass
-
             runs.append({
                 "date": run_dir.name[:8],
-                "content": len(monitors),
+                "content": len(monitors) or 1,
                 "rendered": len(mp4s),
                 "size_mb": round(total_size / 1024 / 1024, 1),
-                "topics": topics,
+                "topics": monitor_titles,
             })
+
+    # Merge cloud summaries (and inferred history) so the charts hold their
+    # full history even on a fresh instance after a redeploy. Local folders win
+    # where both exist; the local run's own counts are the most accurate.
+    cloud = _firestore_runs() + _backfilled_cloud_runs()
+    by_id = {r["run_id"]: r for r in runs}
+    for r in cloud:
+        if r["run_id"] in by_id:
+            continue
+        by_id[r["run_id"]] = r
+    merged = sorted(by_id.values(), key=lambda r: r["run_id"])
+    runs = [
+        {
+            "date": r["date"],
+            "content": r.get("content") or 1,
+            "rendered": r.get("rendered") or 0,
+            "size_mb": r.get("video_size_mb", r.get("size_mb", 0)) or 0,
+            "topics": r.get("topics") or ([r["topic"]] if r.get("topic") else []),
+        }
+        for r in merged
+    ]
 
     total_content = sum(r["content"] for r in runs)
     total_rendered = sum(r["rendered"] for r in runs)
@@ -2198,6 +2314,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
         pipeline_state["last_completed_at"] = datetime.now().isoformat()
+        _persist_run_summary()
         schedule_board_cooldown()
         # Record where the newly published video starts from, so the performance
         # curve has a baseline the moment it goes live.
