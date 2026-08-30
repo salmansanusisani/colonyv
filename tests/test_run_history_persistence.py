@@ -99,3 +99,30 @@ def test_local_folders_win_over_cloud_when_both_exist(monkeypatch, tmp_path):
     entry = next(r for r in data["runs"] if r["run_id"] == "20260830_010252_ad9a")
     # Local folder reports its own size (~1.9 MB) and title, not the cloud values.
     assert entry["video_size_mb"] == pytest.approx(1.9, abs=0.2)
+
+
+class _FakeCloudWithPerformance(_FakeCloud):
+    def load_performance_snapshots(self):
+        video = {"id": "vid1", "title": "Perf video", "views": 10, "likes": 1}
+        video2 = {"id": "vid1", "title": "Perf video", "views": 25, "likes": 2}
+        return [
+            {"at": "2026-08-29T10:00:00", "subscribers": 3, "videos": [video]},
+            {"at": "2026-08-29T11:00:00", "subscribers": 4, "videos": [video2]},
+        ]
+
+
+def test_performance_charts_render_from_firestore_after_instance_recycle(monkeypatch, tmp_path):
+    """Charts (view curves) must come back from Firestore when the local
+    performance_history.json is gone with the instance."""
+    monkeypatch.setattr(app_module, "CLOUD_STATE", _FakeCloudWithPerformance())
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(app_module, "OUTPUT_DIR", empty)
+    monkeypatch.setattr(app_module, "PERFORMANCE_LOG", empty / "performance_history.json")
+
+    data = TestClient(app_module.app).get("/api/performance").json()
+    assert data["ready"] is True
+    assert data["snapshots"] == 2
+    assert len(data["series"]) == 1
+    assert data["series"][0]["points"][-1]["views"] == 25
+    assert data["totals"]["videos"] == 1

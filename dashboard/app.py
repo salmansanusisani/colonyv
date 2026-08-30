@@ -1399,14 +1399,24 @@ MAX_SNAPSHOTS = 1500
 
 
 def _load_performance_history() -> list[dict]:
-    if not PERFORMANCE_LOG.exists():
-        return []
+    local: list[dict] = []
+    if PERFORMANCE_LOG.exists():
+        try:
+            with open(PERFORMANCE_LOG) as f:
+                data = json.load(f)
+            local = data.get("snapshots", []) if isinstance(data, dict) else data
+            if not isinstance(local, list):
+                local = []
+        except (OSError, json.JSONDecodeError):
+            local = []
+    if local or not CLOUD_STATE:
+        return local
+    # Fresh instance after a redeploy: the ephemeral performance log is gone,
+    # but Firestore keeps the accumulated snapshots, so the charts still render.
     try:
-        with open(PERFORMANCE_LOG) as f:
-            data = json.load(f)
-        snapshots = data.get("snapshots", []) if isinstance(data, dict) else data
-        return snapshots if isinstance(snapshots, list) else []
-    except (OSError, json.JSONDecodeError):
+        return CLOUD_STATE.load_performance_snapshots()
+    except Exception as exc:
+        print(f"[cloud-state] reading performance snapshots failed: {exc}", flush=True)
         return []
 
 
@@ -1419,6 +1429,11 @@ def _save_performance_history(snapshots: list[dict]) -> None:
         tmp.replace(PERFORMANCE_LOG)
     except OSError as exc:
         log(f"[performance] could not persist history: {exc}")
+    if CLOUD_STATE:
+        try:
+            CLOUD_STATE.save_performance_snapshots(snapshots)
+        except Exception as exc:
+            print(f"[cloud-state] persisting performance snapshots failed: {exc}", flush=True)
 
 
 def snapshot_performance(force: bool = False) -> dict:

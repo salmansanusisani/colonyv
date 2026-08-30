@@ -21,6 +21,9 @@ class FirestoreState:
         # History and Analytics read back after the ephemeral Cloud Run disk
         # (which holds the full output/ folder) is recycled by a redeploy.
         self.summaries = self.client.collection("colonyv_run_summaries")
+        # Performance snapshots (view counts over time). Stored as one document
+        # per snapshot so growth never trips a per-document size limit.
+        self.performance = self.client.collection("colonyv_performance")
 
     def save_run(self, run_id: str, state: dict[str, Any]) -> None:
         payload = {
@@ -51,6 +54,20 @@ class FirestoreState:
         predate run summaries (their summary fields are inferred from these)."""
         docs = self.collection.order_by("run_id", direction=firestore.Query.DESCENDING).limit(limit).stream()
         return [doc.to_dict() for doc in docs]
+
+    def save_performance_snapshots(self, snapshots: list[dict[str, Any]], limit: int = 500) -> None:
+        """Persist view-count snapshots so the analytics charts survive instance
+        recycles. Stored one document per snapshot ('at' used as the key)."""
+        for snap in snapshots[-limit:]:
+            snap_id = (snap.get("at") or "").replace(":", "-").replace("/", "-")
+            if not snap_id:
+                continue
+            self.performance.document(snap_id).set(snap, merge=True)
+
+    def load_performance_snapshots(self) -> list[dict[str, Any]]:
+        docs = self.performance.order_by("at").stream()
+        snapshots = [doc.to_dict() for doc in docs]
+        return [s for s in snapshots if isinstance(s, dict) and s.get("at")]
 
 
 def get_cloud_state() -> FirestoreState | None:
