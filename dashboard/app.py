@@ -180,6 +180,100 @@ def persist_pipeline_state(force: bool = False) -> None:
         print(f"[cloud-state] Firestore persistence failed: {exc}", flush=True)
 
 
+def save_runtime_state() -> None:
+    """Persist the live board + schedule so an instance recycle (redeploy,
+    maintenance) does not wipe where the user is. Best-effort, throttled."""
+    global _last_runtime_save_ts
+    if not CLOUD_STATE:
+        return
+    now = time.monotonic()
+    if now - _last_runtime_save_ts < 2.0:
+        return
+    _last_runtime_save_ts = now
+    try:
+        CLOUD_STATE.save_runtime_state({
+            "running": pipeline_state["running"],
+            "paused": pipeline_state["paused"],
+            "run_id": pipeline_state["run_id"],
+            "current_step": pipeline_state["current_step"],
+            "progress": pipeline_state["progress"],
+            "content_count": pipeline_state["content_count"],
+            "content_done": pipeline_state["content_done"],
+            "start_time": pipeline_state["start_time"],
+            "paused_duration": pipeline_state["paused_duration"],
+            "agent_message": pipeline_state["agent_message"],
+            "scheduler_enabled": scheduler_config.get("enabled"),
+            "interval_hours": scheduler_config.get("interval_hours"),
+            "next_run": scheduler_config.get("next_run"),
+        })
+    except Exception as exc:
+        print(f"[cloud-state] runtime state save failed: {exc}", flush=True)
+
+
+_last_runtime_save_ts: float = 0.0
+
+
+def restore_runtime_state() -> None:
+    """Restore the live board and schedule after an instance recycle.
+
+    Only the display bookkeeping is restored - the actual agent process is gone,
+    so a run that was mid-flight on a different instance cannot be resumed as
+    code; instead the board shows exactly where it stopped and the operator can
+    Stop or Run again. `next_run` is rolled forward so the old time never fires
+    a duplicate."""
+    if not CLOUD_STATE:
+        return
+    try:
+        st = CLOUD_STATE.load_runtime_state()
+    except Exception as exc:
+        print(f"[cloud-state] runtime state restore failed: {exc}", flush=True)
+        return
+    if not st:
+        return
+    for key in ("running", "paused", "run_id", "current_step", "progress",
+                "content_count", "content_done", "start_time", "paused_duration",
+                "agent_message"):
+        if st.get(key) is not None:
+            pipeline_state[key] = st[key]
+    if st.get("scheduler_enabled"):
+        scheduler_config["enabled"] = bool(st["scheduler_enabled"])
+    if st.get("interval_hours"):
+        scheduler_config["interval_hours"] = float(st["interval_hours"])
+    if st.get("next_run"):
+        try:
+            nxt = datetime.fromisoformat(st["next_run"])
+        except (TypeError, ValueError):
+            nxt = None
+        if nxt:
+            if datetime.now() >= nxt and st.get("running"):
+                # The trigger time already passed on the old instance; do not
+                # fire a stale duplicate - roll it forward by the interval.
+                hours = scheduler_config.get("interval_hours") or 6
+                scheduler_config["next_run"] = (
+                    datetime.now() + timedelta(hours=hours)
+                ).isoformat()
+            else:
+                scheduler_config["next_run"] = st["next_run"]
+    # A restored run is displayed as stopped/paused-but-not-running: the actual
+    # processing task no longer exists, and the operator decides the next step.
+    if pipeline_state.get("running"):
+        pipeline_state["running"] = False
+        log("Restored interrupted run state from storage. The prior instance's "
+            "processing task is gone; click Run to continue or Stop to reset.")
+        # Make sure whatever the interrupted instance already produced is backed up
+        # so its row stays clickable even though the run never "completed".
+        restored_id = st.get("run_id")
+        if restored_id:
+            run_dir = OUTPUT_DIR / restored_id
+            if not run_dir.is_dir():
+                from colonyv_agent import artifacts
+                try:
+                    artifacts.download_run_artifacts(restored_id, run_dir)
+                except Exception as exc:
+                    print(f"[artifacts] restore download failed: {exc}", flush=True)
+            _backup_run_folder()
+
+
 def save_settings() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = SETTINGS_PATH.with_suffix(".json.tmp")
@@ -638,6 +732,9 @@ async def api_status():
             elapsed = time.time() - start - p_dur
     else:
         elapsed = 0.0
+
+    # Continuously persist the live board so an instance recycle does not wipe it.
+    save_runtime_state()
 
     return {
         "running": pipeline_state["running"],
@@ -1642,7 +1739,24 @@ YOUTUBE_SCOPES = [
 ]
 
 
-def _youtube_data():
+_yt_cache: dict = {"ts": 0.0, "data": None}
+# YouTube API quota is per-day and generous refills are slow; the dashboard polls
+# these endpoints frequently (2s status + tab loads + snapshot), so we cache the
+# live result briefly. The rate limit is a hard wall - caching is the only sane
+# guard short of spending real money on quota.
+YT_CACHE_TTL = float(os.environ.get("COLONYV_YT_CACHE_TTL", "60"))
+
+
+def _youtube_data(force: bool = False):
+    now = time.time()
+    if not force and _yt_cache["data"] is not None and (now - _yt_cache["ts"]) < YT_CACHE_TTL:
+        return _yt_cache["data"]
+    data = _youtube_data_fetch()
+    _yt_cache.update(ts=time.time(), data=data)
+    return data
+
+
+def _youtube_data_fetch():
     _materialize_youtube_credentials()
     token_path = AGENTS_DIR / "publisher" / "youtube_token.json"
     has_credentials = (AGENTS_DIR / "publisher" / "client_secret.json").exists()
@@ -2775,6 +2889,7 @@ async def start_scheduler():
         try:
             CLOUD_STATE = get_cloud_state()
             print("[cloud-state] Firestore run persistence enabled", flush=True)
+            restore_runtime_state()
         except Exception as exc:
             print(f"[cloud-state] Firestore unavailable: {exc}", flush=True)
     loop = app_loop
