@@ -2008,6 +2008,35 @@ def _youtube_redirect_uri(request: Request):
     return f"{scheme}://{host}/api/youtube/callback"
 
 
+def _restore_youtube_token() -> None:
+    """On startup, prefer the durably-saved YouTube token over the stale env one.
+
+    The env var carries the original token that was valid at deploy time. After
+    a re-auth the fresh token is saved to Firestore; that is the authoritative
+    one and must overlay the env value, otherwise a recycled instance would fall
+    back to an expired/revoked token and lose the reconnection."""
+    if not CLOUD_STATE:
+        return
+    try:
+        durable = CLOUD_STATE.load_youtube_token()
+    except Exception as exc:
+        print(f"[cloud-state] youtube token restore failed: {exc}", flush=True)
+        return
+    if not durable:
+        return
+    try:
+        parsed = json.loads(durable)  # sanity: must be valid credential JSON
+    except ValueError:
+        return
+    token_path = AGENTS_DIR / "publisher" / "youtube_token.json"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        token_path.write_text(durable)
+        print("[cloud-state] Restored durable YouTube token.", flush=True)
+    except OSError as exc:
+        print(f"[cloud-state] youtube token write failed: {exc}", flush=True)
+
+
 @app.post("/api/youtube/auth")
 async def api_youtube_auth(request: Request):
     """Trigger YouTube OAuth flow (returns auth URL)."""
@@ -2068,6 +2097,14 @@ async def api_youtube_callback(request: Request, code: str = None, state: str = 
         token_path.parent.mkdir(parents=True, exist_ok=True)
         with open(token_path, "w") as f:
             f.write(creds.to_json())
+
+        # Persist the fresh token durably so it survives instance recycles -
+        # the env-injected old token must NOT overwrite this on the next boot.
+        if CLOUD_STATE:
+            try:
+                CLOUD_STATE.save_youtube_token(creds.to_json())
+            except Exception as exc:
+                print(f"[cloud-state] youtube token persist failed: {exc}", flush=True)
 
         app.state.oauth_flow = None
         app.state.oauth_state = None
@@ -2966,6 +3003,7 @@ async def start_scheduler():
             CLOUD_STATE = get_cloud_state()
             print("[cloud-state] Firestore run persistence enabled", flush=True)
             restore_runtime_state()
+            _restore_youtube_token()
         except Exception as exc:
             print(f"[cloud-state] Firestore unavailable: {exc}", flush=True)
     loop = app_loop

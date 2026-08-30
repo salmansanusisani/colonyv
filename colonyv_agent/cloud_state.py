@@ -79,6 +79,18 @@ class FirestoreState:
         doc = self.client.collection("colonyv_dashboard_state").document("current").get()
         return doc.to_dict() if doc.exists else None
 
+    # --- Durable YouTube token (survives instance recycles) ---
+    def save_youtube_token(self, token_json: str) -> None:
+        self.client.collection("colonyv_dashboard_state").document("youtube_token").set(
+            {"token": token_json}, merge=True
+        )
+
+    def load_youtube_token(self) -> str | None:
+        doc = self.client.collection("colonyv_dashboard_state").document("youtube_token").get()
+        if doc.exists:
+            return (doc.to_dict() or {}).get("token")
+        return None
+
 
 def get_cloud_state() -> FirestoreState | None:
     if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
