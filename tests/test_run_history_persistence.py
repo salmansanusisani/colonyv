@@ -112,6 +112,29 @@ def test_local_folders_win_over_cloud_when_both_exist(monkeypatch, tmp_path):
     assert entry["video_size_mb"] == pytest.approx(1.9, abs=0.2)
 
 
+def test_analytics_survives_local_folder_run(monkeypatch, tmp_path):
+    """A local run folder (whose record has a run_id derived from its name)
+    must not crash /api/analytics with KeyError: 'run_id'. Regression for the
+    fresh-instance-with-local-folder scenario."""
+    monkeypatch.setattr(app_module, "CLOUD_STATE", _FakeCloud())
+
+    local_run = tmp_path / "20260830_010252_ad9a"
+    local_run.mkdir()
+    story = "20260830_010252_ad9a_s1"
+    (local_run / f"{story}_monitor.json").write_text('{"title": "Fresh local title"}')
+    (local_run / f"{story}.mp4").write_bytes(b"x" * 2_000_000)
+    monkeypatch.setattr(app_module, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(app_module, "_published_video_count", lambda: 0)
+
+    resp = TestClient(app_module.app).get("/api/analytics")
+    assert resp.status_code == 200
+    data = resp.json()
+    # 1 local (overrides the same-id summary) + 2 backfilled cloud runs merged
+    # without error.
+    assert data["total_runs"] == 3
+    assert "20260830" in [r["date"] for r in data["runs"]]
+
+
 class _FakeCloudWithPerformance(_FakeCloud):
     def load_performance_snapshots(self):
         video = {"id": "vid1", "title": "Perf video", "views": 10, "likes": 1}

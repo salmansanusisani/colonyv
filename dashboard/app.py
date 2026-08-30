@@ -1562,6 +1562,7 @@ async def api_analytics():
                 except Exception:
                     pass
             runs.append({
+                "run_id": run_dir.name,
                 "date": run_dir.name[:8],
                 "content": len(monitors) or 1,
                 "rendered": len(mp4s),
@@ -1573,11 +1574,12 @@ async def api_analytics():
     # full history even on a fresh instance after a redeploy. Local folders win
     # where both exist; the local run's own counts are the most accurate.
     cloud = _firestore_runs() + _backfilled_cloud_runs()
-    by_id = {r["run_id"]: r for r in runs}
+    by_id = {r["run_id"]: r for r in runs if r.get("run_id")}
     for r in cloud:
-        if r["run_id"] in by_id:
+        rid = r.get("run_id")
+        if not rid or rid in by_id:
             continue
-        by_id[r["run_id"]] = r
+        by_id[rid] = r
     merged = sorted(by_id.values(), key=lambda r: r["run_id"])
     runs = [
         {
