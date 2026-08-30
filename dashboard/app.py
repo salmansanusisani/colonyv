@@ -517,6 +517,42 @@ def set_agent_activity(key: str, status: str, detail: str) -> None:
 
 reset_agent_activity()
 
+# A finished run holds its green board briefly so the operator sees the completed
+# cycle, then the cards return to waiting. Leaving every card green forever
+# implies the system is permanently "done". This has to happen server-side: the
+# client-side timer alone could never win, because the next 2s poll repainted the
+# still-"complete" server state straight back to green.
+BOARD_COOLDOWN_SECONDS = float(os.environ.get("COLONYV_BOARD_COOLDOWN", "6"))
+_board_cooldown_task: "asyncio.Task | None" = None
+
+
+async def cool_down_agent_board(delay: float | None = None) -> None:
+    """Return the workspace cards to waiting once a finished run has settled.
+
+    Skipped if another run started during the hold, so a quick re-run never has
+    its fresh board wiped by the previous cycle's cooldown.
+    """
+    await asyncio.sleep(BOARD_COOLDOWN_SECONDS if delay is None else delay)
+    if pipeline_state.get("running"):
+        return
+    reset_agent_activity()
+    pipeline_state["progress"] = 0
+    persist_pipeline_state(force=True)
+
+
+def schedule_board_cooldown() -> None:
+    global _board_cooldown_task
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if _board_cooldown_task is not None and not _board_cooldown_task.done():
+        _board_cooldown_task.cancel()
+    # Held in a module global: asyncio keeps only a weak reference to tasks, so a
+    # bare create_task() can be garbage collected before it ever fires.
+    _board_cooldown_task = asyncio.create_task(cool_down_agent_board())
+
+
 log_subscribers: list[WebSocket] = []
 
 # Serialises run starts so a double-click (or scheduler + click) cannot launch
@@ -809,8 +845,10 @@ async def run_production_director(stories: int):
     finally:
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
+        pipeline_state["last_completed_at"] = datetime.now().isoformat()
         persist_pipeline_state(force=True)
-        
+        schedule_board_cooldown()
+
         if scheduler_config.get("enabled") and scheduler_config.get("next_run"):
             try:
                 dt = datetime.fromisoformat(scheduler_config["next_run"])
@@ -868,6 +906,7 @@ async def handle_stage_message(run_id: str, stage: str, story_index: int, attemp
         pipeline_state["start_time"] = None
         pipeline_state["last_completed_at"] = datetime.now().isoformat()
         log(f"[async] run {run_id} completed ({result.get('decision')})")
+        schedule_board_cooldown()
         try:
             await asyncio.to_thread(snapshot_performance, True)
         except Exception as exc:
@@ -1075,6 +1114,9 @@ async def api_pipeline_stop():
     pipeline_state["current_step"] = "stopped"
     scheduler_config["next_run"] = None
     log("Pipeline stopped. Schedule disarmed; click Run to arm it again.")
+    # A stopped run returns the board to waiting on the same delay as a finished
+    # one, so a terminated cycle does not sit frozen mid-stage forever.
+    schedule_board_cooldown()
     from colonyv_agent import pipeline_runtime
     pipeline_runtime.request_stop()
     proc = pipeline_state.get("current_process")
@@ -2059,12 +2101,15 @@ async def run_pipeline(stories: int, skip_publish: bool):
                 log("  Publishing to YouTube...")
 
                 py_exec = get_python_exec()
+                from colonyv_agent import publishing
+
+                _topic = pipeline_state.get("run_topic", "")
                 cmd = [
                     py_exec, str(AGENTS_DIR / "publisher" / "youtube.py"),
                     "upload", str(video_path),
-                    "--title", script.get("hook", "AI News")[:100],
-                    "--description", script.get("body", "")[:5000],
-                    "--tags", "ai,tech,news",
+                    "--title", publishing.build_title(script),
+                    "--description", publishing.build_description(script, topic=_topic),
+                    "--tags", ",".join(publishing.build_keyword_tags(topic=_topic)),
                     "--privacy", "public",
                 ]
 
@@ -2153,6 +2198,7 @@ async def run_pipeline(stories: int, skip_publish: bool):
         pipeline_state["running"] = False
         pipeline_state["start_time"] = None
         pipeline_state["last_completed_at"] = datetime.now().isoformat()
+        schedule_board_cooldown()
         # Record where the newly published video starts from, so the performance
         # curve has a baseline the moment it goes live.
         try:

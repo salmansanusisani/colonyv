@@ -11,6 +11,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -200,11 +201,43 @@ def do_auth():
         sys.exit(1)
 
 
+def _enforce_youtube_limits(title: str, description: str, tags: list[str]):
+    """Clamp metadata to YouTube's hard limits before it reaches the API.
+
+    More than 15 hashtags in the description makes YouTube reject the upload
+    outright, so surplus ones are dropped rather than risking the whole video.
+    '#' and '<'/'>' are also illegal inside snippet.tags values.
+    """
+    title = (title or "AI News Update").replace("<", "").replace(">", "")[:100]
+    description = (description or "")[:5000]
+
+    hashtags = re.findall(r"#\w+", description)
+    if len(hashtags) > 15:
+        for surplus in hashtags[15:]:
+            description = description.replace(surplus + " ", "", 1)
+            description = description.replace(surplus, "", 1)
+        description = description.rstrip()
+
+    clean_tags = []
+    used = 0
+    for tag in tags or []:
+        tag = re.sub(r"[#<>]", "", str(tag)).strip()
+        if not tag or tag in clean_tags:
+            continue
+        if used + len(tag) + 1 > 500:
+            break
+        clean_tags.append(tag)
+        used += len(tag) + 1
+    return title, description, clean_tags
+
+
 def do_upload(mp4_path: str, title: str, description: str, tags: list[str], sandbox: bool, privacy: str = "public"):
     mp4 = Path(mp4_path)
     if not mp4.exists():
         print(f"Error: {mp4_path} not found.", file=sys.stderr)
         sys.exit(1)
+
+    title, description, tags = _enforce_youtube_limits(title, description, tags)
 
     if sandbox:
         print(f"[SANDBOX] Would upload: {mp4.name}")

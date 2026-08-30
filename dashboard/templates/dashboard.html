@@ -1770,38 +1770,21 @@
     }
 
     /*
-      Return the cards to their waiting state a few seconds after a cycle ends.
+      The cards return to their waiting state a few seconds after a cycle ends.
 
       Leaving every card green implied the system was permanently "done", which is
       wrong for something that runs on a schedule: after a cycle finishes the
-      correct state is idle, waiting for the next one. The delay exists so the
-      completed run is actually visible before it clears.
+      correct state is idle, waiting for the next one.
+
+      This is driven by the SERVER (see cool_down_agent_board in app.py), not a
+      local timer. A client-only timer could never win: it greyed the cards, then
+      the next 2s poll read the still-"complete" server state and repainted them
+      green, so the reset lasted under two seconds and then snapped back forever.
+      With the server clearing the statuses, the reset simply arrives as normal
+      polled state and survives a page reload too.
     */
-    let cycleResetTimer = null;
-    const CYCLE_RESET_DELAY_MS = 6000;
-
-    function scheduleAgentReset() {
-        if (cycleResetTimer) return;
-        cycleResetTimer = setTimeout(() => {
-            cycleResetTimer = null;
-            // A new run may have started while we were waiting.
-            if (pipelineIsRunning) return;
-            Object.values(agentNodeCache).forEach(node => {
-                node.className = 'agent-node pending';
-                const statusEl = node.querySelector('.agent-node-status');
-                if (statusEl) statusEl.textContent = 'waiting';
-                const detailEl = node.querySelector('.agent-node-detail');
-                if (detailEl) detailEl.textContent = '';
-            });
-            const flow = document.getElementById('agentFlow');
-            if (flow) flow.dataset.signature = 'reset';
-            const msg = document.getElementById('agentBoardMessage');
-            if (msg) msg.textContent = nextRunLabel || 'Cycle complete — waiting for the next run.';
-        }, CYCLE_RESET_DELAY_MS);
-    }
-
     function cancelAgentReset() {
-        if (cycleResetTimer) { clearTimeout(cycleResetTimer); cycleResetTimer = null; }
+        /* retained as a no-op: the cooldown now lives server-side */
     }
 
     function markAgentsPending() {
@@ -2206,11 +2189,11 @@
                 statusWasComplete = false;
             }
 
-            // A cycle just ended: hold the completed state briefly so it can be
-            // seen, then return the workspace to waiting.
+            // A cycle just ended. The server holds the completed (green) board
+            // for BOARD_COOLDOWN_SECONDS and then clears the statuses itself, so
+            // the reset arrives here as ordinary polled state.
             if (previousWasRunning) {
                 previousWasRunning = false;
-                scheduleAgentReset();
             }
         }
         setTimeout(pollStatus, 2000);

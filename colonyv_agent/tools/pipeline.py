@@ -500,12 +500,35 @@ def publish_to_youtube(tool_context: ToolContext) -> dict[str, Any]:
     if privacy != "public":
         runtime.log(f"[publish] uploading as {privacy} (publication gate was not satisfied)")
 
+    # Metadata is derived from what this run actually found (researched entities,
+    # the run topic, the story format) instead of a static tag string, and the
+    # description gets real paragraphs, sources and hashtags. YouTube renders the
+    # first three description hashtags above the title.
+    from colonyv_agent import publishing
+
+    research = tool_context.state.get("research") or {}
+    story = tool_context.state.get("current_story") or {}
+    topic = os.environ.get("COLONY_TOPIC_PROMPT", "")
+    hashtags = publishing.build_hashtags(
+        entities=research.get("entities"),
+        topic=topic,
+        story_format=script.get("format") or story.get("recommended_format", ""),
+    )
+    description = publishing.build_description(
+        script, research=research, story=story, topic=topic, hashtags=hashtags
+    )
+    keyword_tags = publishing.build_keyword_tags(
+        entities=research.get("entities"), topic=topic
+    )
+    if hashtags:
+        runtime.log(f"[publish] hashtags: {' '.join('#' + h for h in hashtags)}")
+
     cmd = [
         get_python_exec(), str(AGENTS_DIR / "publisher" / "youtube.py"),
         "upload", str(mp4),
-        "--title", (script.get("hook", "AI News Update") or "AI News Update")[:100],
-        "--description", (script.get("body", "") or "")[:5000],
-        "--tags", "ai,tech,news,agents",
+        "--title", publishing.build_title(script),
+        "--description", description,
+        "--tags", ",".join(keyword_tags),
         "--privacy", privacy,
     ]
     # A 14-25 MB upload over conference wifi routinely exceeds two minutes, and

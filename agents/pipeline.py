@@ -214,9 +214,13 @@ def run_producer(script: dict, output_dir: Path) -> str | None:
 
 
 def run_publisher(mp4_path: str, script: dict) -> str | None:
-    title = script.get("hook", "AI News Update")[:100]
-    description = script.get("body", "")[:5000]
-    tags = ["ai", "tech", "news", "agents"]
+    import os as _os
+    from colonyv_agent import publishing
+
+    _topic = _os.environ.get("COLONY_TOPIC_PROMPT", "")
+    title = publishing.build_title(script)
+    description = publishing.build_description(script, topic=_topic)
+    tags = publishing.build_keyword_tags(topic=_topic)
 
     log("PUBLISHER", f"Uploading: {Path(mp4_path).name}")
 
