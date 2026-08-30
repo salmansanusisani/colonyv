@@ -908,6 +908,8 @@ async def handle_stage_message(run_id: str, stage: str, story_index: int, attemp
         pipeline_state["last_completed_at"] = datetime.now().isoformat()
         log(f"[async] run {run_id} completed ({result.get('decision')})")
         schedule_board_cooldown()
+        pipeline_state["run_id"] = run_id
+        _persist_run_summary()
         try:
             await asyncio.to_thread(snapshot_performance, True)
         except Exception as exc:
@@ -1021,6 +1023,9 @@ def _build_run_summary() -> dict | None:
 
 def _persist_run_summary() -> None:
     if not CLOUD_STATE:
+        # Even without Firestore we should try to back up run artifacts; the
+        # two go together but one failing must not block the other.
+        _backup_run_folder()
         return
     run_id = pipeline_state.get("run_id")
     summary = _build_run_summary()
@@ -1030,6 +1035,24 @@ def _persist_run_summary() -> None:
         CLOUD_STATE.save_run_summary(run_id, summary)
     except Exception as exc:
         print(f"[cloud-state] run summary persistence failed: {exc}", flush=True)
+    _backup_run_folder()
+
+
+def _backup_run_folder() -> None:
+    """Upload the finished run's MP4(s) and story JSONs to GCS (best-effort)."""
+    run_id = pipeline_state.get("run_id")
+    run_dir = OUTPUT_DIR / run_id if run_id else None
+    if not run_id or not run_dir or not run_dir.exists():
+        return
+    try:
+        from colonyv_agent import artifacts
+        result = artifacts.backup_run_artifacts(run_id, run_dir)
+        if result.get("error"):
+            log(f"[artifacts] backup note: {result['error']}")
+        elif result.get("uploaded"):
+            log(f"[artifacts] backed up {result['uploaded']} file(s) for {run_id}")
+    except Exception as exc:
+        log(f"[artifacts] backup failed: {exc}")
 
 
 def _firestore_runs() -> list[dict]:
@@ -1091,7 +1114,13 @@ async def api_run_detail(run_id: str):
         return JSONResponse({"error": "invalid run_id"}, 400)
     run_dir = OUTPUT_DIR / run_id
     if not run_dir.is_dir():
-        return JSONResponse({"error": "not found"}, 404)
+        # The instance was recycled (ephemeral disk) — pull the run's files back
+        # from the durable GCS backup so the row is still clickable.
+        from colonyv_agent import artifacts
+
+        fetched = artifacts.download_run_artifacts(run_id, run_dir)
+        if not fetched.get("local") and not fetched.get("remote_available"):
+            return JSONResponse({"error": "not found"}, 404)
 
     stories = []
     for monitor_file in sorted(run_dir.glob("*_monitor.json")):
@@ -1110,6 +1139,10 @@ async def api_run_detail(run_id: str):
             round(video.stat().st_size / 1024 / 1024, 1) if video.exists() else 0
         )
         stories.append(story)
+
+    # Nothing on disk nor in storage for this run: treat as unavailable.
+    if not run_dir.exists() or not any(run_dir.glob("*")):
+        return JSONResponse({"error": "not found"}, 404)
 
     return {"run_id": run_id, "content": stories}
 
