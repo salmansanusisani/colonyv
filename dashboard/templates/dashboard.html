@@ -1929,6 +1929,7 @@
     const PHASES = {
         idle:   { icon: 'bot',    label: 'Autonomous Run' },
         stop:   { icon: 'square', label: 'Stop Run' },
+        cancel: { icon: 'square', label: 'Cancel Schedule' },
         pause:  { icon: 'pause',  label: 'Pause' },
         resume: { icon: 'play',   label: 'Resume' }
     };
@@ -1971,6 +1972,7 @@
         if (runRequestInFlight) return;
         const btn = document.getElementById('agentRunBtn');
         const stopping = btn.dataset.phase === 'stop';
+        const cancelling = btn.dataset.phase === 'cancel';
         runRequestInFlight = true;
 
         try {
@@ -1979,6 +1981,10 @@
                 stopTimer();
                 await fetch('/api/pipeline/stop', { method: 'POST' });
                 toast('Run stopping…', 'info');
+            } else if (cancelling) {
+                setPhase('agentRunBtn', 'cancel', { busyLabel: 'Cancelling…' });
+                await fetch('/api/pipeline/stop', { method: 'POST' });
+                toast('Scheduled run cancelled', 'info');
             } else {
                 setPhase('agentRunBtn', 'idle', { busyLabel: 'Starting…' });
                 setPhase('pauseResumeBtn', 'pause', { disabled: true });
@@ -2008,7 +2014,7 @@
                 toast(`Autonomous run started${data.mode ? ' (' + data.mode + ')' : ''}`, 'info');
             }
         } catch (err) {
-            setPhase('agentRunBtn', stopping ? 'stop' : 'idle');
+            setPhase('agentRunBtn', stopping ? 'stop' : (cancelling ? 'cancel' : 'idle'));
             toast('Network error — could not reach the server', 'error');
         } finally {
             runRequestInFlight = false;
@@ -2170,11 +2176,13 @@
                 text.textContent = 'System Idle';
             }
 
-            if (!runRequestInFlight) setPhase('agentRunBtn', 'idle');
+            if (!runRequestInFlight) setPhase('agentRunBtn', s.next_run ? 'cancel' : 'idle');
             if (!pauseRequestInFlight) setPhase('pauseResumeBtn', 'pause', { disabled: true });
 
             stopTimer();
-            document.getElementById('runHeading').textContent = 'Ready to run';
+            document.getElementById('runHeading').textContent = s.next_run
+                ? 'Standby — auto-run armed'
+                : 'Ready to run';
 
             if (s.current_step === 'complete') {
                 if (!statusWasComplete) {
