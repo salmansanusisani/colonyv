@@ -1318,6 +1318,24 @@ async def api_models(provider: str = ""):
     return {"provider": provider, "label": catalog["label"], "models": sorted(set(models)), "source": "api" if key else "built-in"}
 
 
+_yt_video_count_cache: dict = {"ts": 0.0, "count": 0}
+
+
+def _published_video_count() -> int:
+    """Live count of videos on the YouTube channel — the durable truth of what
+    runs have published, instead of guessing from ephemeral run records."""
+    if time.time() - _yt_video_count_cache["ts"] < 120:
+        return _yt_video_count_cache["count"]
+    count = 0
+    try:
+        data = _youtube_data()
+        count = int((data.get("channel") or {}).get("total_videos") or 0)
+    except Exception as exc:
+        print(f"[analytics] youtube count failed: {exc}", flush=True)
+    _yt_video_count_cache.update(ts=time.time(), count=count)
+    return count
+
+
 @app.get("/api/analytics")
 async def api_analytics():
     runs = []
@@ -1365,7 +1383,9 @@ async def api_analytics():
     ]
 
     total_content = sum(r["content"] for r in runs)
-    total_rendered = sum(r["rendered"] for r in runs)
+    total_rendered = _published_video_count()
+    if not total_rendered:
+        total_rendered = sum(r["rendered"] for r in runs)
     total_size = sum(r["size_mb"] for r in runs)
 
     return {

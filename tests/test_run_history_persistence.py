@@ -60,6 +60,9 @@ def client(monkeypatch, tmp_path):
     empty = tmp_path / "empty_output"
     empty.mkdir()
     monkeypatch.setattr(app_module, "OUTPUT_DIR", empty)
+    # Keep the YouTube call out of unit tests: report zero published so the
+    # fallback (sum over run records) is exercised deterministically.
+    monkeypatch.setattr(app_module, "_published_video_count", lambda: 0)
     return TestClient(app_module.app)
 
 
@@ -82,6 +85,14 @@ def test_analytics_counts_merge_all_sources(client):
     assert data["total_rendered"] == 2  # summary rendered + complete backfill
     dates = [r["date"] for r in data["runs"]]
     assert dates == sorted(dates)  # chronological order
+
+
+def test_analytics_videos_published_prefers_live_youtube_count(monkeypatch, client):
+    """When YouTube is reachable, the Published card shows the real channel
+    count (the durable truth), not the guessed run-record total."""
+    monkeypatch.setattr(app_module, "_published_video_count", lambda: 21)
+    data = client.get("/api/analytics").json()
+    assert data["total_rendered"] == 21
 
 
 def test_local_folders_win_over_cloud_when_both_exist(monkeypatch, tmp_path):
