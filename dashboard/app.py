@@ -27,6 +27,12 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
+
+# Schedules and their display are anchored to Africa/Lagos (WAT, UTC+1) — the
+# operator's local time. All schedule comparisons and stored next_run timestamps
+# use this zone so the dashboard never drifts relative to where the user lives.
+APP_TZ = ZoneInfo(os.environ.get("COLONYV_TZ", "Africa/Lagos"))
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -151,6 +157,61 @@ settings = load_settings()
 APP_STARTED_AT = time.time()
 CLOUD_STATE = None
 
+# Durable "deployed since" anchor: stored in Firestore on first boot so an
+# instance recycle does not reset the Agent uptime counter. Falls back to the
+# in-memory boot time when Firestore is unavailable (local dev).
+DURABLE_UPTIME = {"boot_ts": None}
+
+
+def _now() -> datetime:
+    """Current time anchored to the operator's timezone (Africa/Lagos)."""
+    return datetime.now(APP_TZ)
+
+
+def _schedule_next(interval_hours: float) -> str:
+    """Absolute ISO timestamp (Lagos) for the next auto-run."""
+    return (_now() + timedelta(hours=interval_hours)).isoformat()
+
+
+def _next_run_epoch_ms(next_run) -> float | None:
+    """Convert a stored next_run (aware or naive Lagos ISO) to epoch ms."""
+    if not next_run:
+        return None
+    try:
+        dt = datetime.fromisoformat(next_run)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=APP_TZ)
+    return dt.timestamp() * 1000.0
+
+
+def _uptime() -> float:
+    """Seconds since the service was first deployed/alive (durable across
+    instance recycles). Falls back to in-memory boot time if Firestore is off."""
+    boot = DURABLE_UPTIME.get("boot_ts")
+    if boot:
+        return max(0.0, time.time() - boot)
+    return max(0.0, time.time() - APP_STARTED_AT)
+
+
+def _schedule_state() -> str:
+    """Classify the schedule for the UI's scheduleSummary label."""
+    if not scheduler_config.get("enabled") or not scheduler_config.get("next_run"):
+        return "disabled"
+    if pipeline_state.get("running"):
+        try:
+            due = datetime.fromisoformat(scheduler_config["next_run"])
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=APP_TZ)
+        except (TypeError, ValueError):
+            return "armed"
+        if _now() >= due:
+            # The scheduled time has passed while a run is still going - the
+            # next run is queued and will fire once this one completes.
+            return "pending"
+    return "armed"
+
 _materialize_youtube_credentials()
 
 
@@ -205,6 +266,8 @@ def save_runtime_state() -> None:
             "scheduler_enabled": scheduler_config.get("enabled"),
             "interval_hours": scheduler_config.get("interval_hours"),
             "next_run": scheduler_config.get("next_run"),
+            "logs": pipeline_state["logs"][-200:],
+            "boot_ts": DURABLE_UPTIME.get("boot_ts") or APP_STARTED_AT,
         })
     except Exception as exc:
         print(f"[cloud-state] runtime state save failed: {exc}", flush=True)
@@ -235,6 +298,16 @@ def restore_runtime_state() -> None:
                 "agent_message"):
         if st.get(key) is not None:
             pipeline_state[key] = st[key]
+
+    # Restore the terminal's last lines so the operator is not staring at an
+    # empty log right after a recycle. New lines stream in over WebSocket.
+    if st.get("logs"):
+        pipeline_state["logs"] = list(st["logs"])[:200]
+
+    # Keep the durable "deployed since" anchor so Agent uptime does not reset.
+    if st.get("boot_ts"):
+        DURABLE_UPTIME["boot_ts"] = float(st["boot_ts"])
+
     if st.get("scheduler_enabled"):
         scheduler_config["enabled"] = bool(st["scheduler_enabled"])
     if st.get("interval_hours"):
@@ -245,15 +318,15 @@ def restore_runtime_state() -> None:
         except (TypeError, ValueError):
             nxt = None
         if nxt:
-            if datetime.now() >= nxt and st.get("running"):
+            if nxt.tzinfo is None:
+                nxt = nxt.replace(tzinfo=APP_TZ)
+            if _now() >= nxt and st.get("running"):
                 # The trigger time already passed on the old instance; do not
                 # fire a stale duplicate - roll it forward by the interval.
                 hours = scheduler_config.get("interval_hours") or 6
-                scheduler_config["next_run"] = (
-                    datetime.now() + timedelta(hours=hours)
-                ).isoformat()
+                scheduler_config["next_run"] = _schedule_next(hours)
             else:
-                scheduler_config["next_run"] = st["next_run"]
+                scheduler_config["next_run"] = nxt.isoformat()
     # A restored run is displayed as stopped/paused-but-not-running: the actual
     # processing task no longer exists, and the operator decides the next step.
     if pipeline_state.get("running"):
@@ -745,8 +818,15 @@ async def api_status():
         "content_count": pipeline_state["content_count"],
         "content_done": pipeline_state["content_done"],
         "elapsed": max(0.0, elapsed),
-        "uptime": time.time() - APP_STARTED_AT,
+        "uptime": _uptime(),
         "next_run": scheduler_config.get("next_run") if "scheduler_config" in globals() else None,
+        "next_run_ts": _next_run_epoch_ms(
+            scheduler_config.get("next_run") if "scheduler_config" in globals() else None
+        ),
+        # "pending" when a run is in progress and the scheduled time already
+        # passed: the next run is queued behind the current one and will fire
+        # once it finishes. Otherwise the schedule is simply "armed".
+        "schedule_state": _schedule_state(),
         "last_completed_at": pipeline_state.get("last_completed_at"),
         "active_agent": pipeline_state["active_agent"],
         "agent_message": pipeline_state["agent_message"],
@@ -828,7 +908,7 @@ async def _begin_production_run(stories: int, *, source: str, skip_publish: bool
 
     if scheduler_config.get("enabled"):
         hours = scheduler_config.get("interval_hours") or 6
-        scheduler_config["next_run"] = (datetime.now() + timedelta(hours=hours)).isoformat()
+        scheduler_config["next_run"] = _schedule_next(hours)
         if source != "scheduler":
             log(f"Schedule armed: next run in {hours}h (or when this run completes).")
 
@@ -1404,9 +1484,7 @@ async def api_settings_set(request: Request):
         if scheduler_values.get("videos_per_run"):
             scheduler_config["stories"] = int(scheduler_values["videos_per_run"])
         if scheduler_config.get("next_run"):
-            scheduler_config["next_run"] = (
-                datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
-            ).isoformat()
+            scheduler_config["next_run"] = _schedule_next(scheduler_config["interval_hours"])
     settings["model"].setdefault("api_keys", {}).pop("gemini", None)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     save_settings()
@@ -2596,7 +2674,7 @@ scheduler_config = {
 
 @app.get("/api/scheduler")
 async def api_scheduler_get():
-    return scheduler_config
+    return {**scheduler_config, "next_run_ts": _next_run_epoch_ms(scheduler_config.get("next_run"))}
 
 
 @app.post("/api/scheduler")
@@ -2608,9 +2686,7 @@ async def api_scheduler_set(request: Request):
         "stories": body.get("stories", settings["pipeline"].get("videos_per_run", 1)),
     })
     if scheduler_config.get("next_run"):
-        scheduler_config["next_run"] = (
-            datetime.now() + timedelta(hours=scheduler_config["interval_hours"])
-        ).isoformat()
+        scheduler_config["next_run"] = _schedule_next(scheduler_config["interval_hours"])
     settings["scheduler"].update({
         "enabled": True,
         "interval_hours": scheduler_config["interval_hours"],
@@ -2900,23 +2976,27 @@ async def start_scheduler():
                 if scheduler_config.get("enabled") and not pipeline_state.get("running"):
                     nxt = scheduler_config.get("next_run")
                     if nxt:
-                        due = datetime.fromisoformat(nxt)
-                        if datetime.now() >= due:
-                            interval_hours = scheduler_config.get("interval_hours") or 6
-                            scheduler_config["next_run"] = (
-                                datetime.now() + timedelta(hours=interval_hours)
-                            ).isoformat()
-                            settings["scheduler"].update(
-                                {"enabled": True, "interval_hours": interval_hours}
-                            )
-                            try:
-                                save_settings()
-                            except Exception:
-                                pass
-                            try:
-                                asyncio.run_coroutine_threadsafe(_scheduled_launch(), loop)
-                            except RuntimeError:
-                                pass
+                        try:
+                            due = datetime.fromisoformat(nxt)
+                        except (TypeError, ValueError):
+                            due = None
+                        if due is not None:
+                            if due.tzinfo is None:
+                                due = due.replace(tzinfo=APP_TZ)
+                            if _now() >= due:
+                                interval_hours = scheduler_config.get("interval_hours") or 6
+                                scheduler_config["next_run"] = _schedule_next(interval_hours)
+                                settings["scheduler"].update(
+                                    {"enabled": True, "interval_hours": interval_hours}
+                                )
+                                try:
+                                    save_settings()
+                                except Exception:
+                                    pass
+                                try:
+                                    asyncio.run_coroutine_threadsafe(_scheduled_launch(), loop)
+                                except RuntimeError:
+                                    pass
             except Exception:
                 pass
             time.sleep(20)

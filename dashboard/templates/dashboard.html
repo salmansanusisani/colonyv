@@ -1845,6 +1845,18 @@
     }
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+    // Schedules are shown in the operator's local time (Africa/Lagos, WAT).
+    const APP_TZ = 'Africa/Lagos';
+    function formatLagos(epochMs, opts = {}) {
+        if (!epochMs) return '';
+        const d = new Date(epochMs);
+        const base = { timeZone: APP_TZ };
+        const date = d.toLocaleDateString(undefined, { ...base, weekday: 'short', month: 'short', day: 'numeric' });
+        const time = d.toLocaleTimeString(undefined, { ...base, hour: 'numeric', minute: '2-digit' });
+        if (opts.time) return `${time} (WAT)`;
+        return `${date}, ${time} WAT`;
+    }
+
     async function fetchJson(url, options = {}, timeoutMs = 8000) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -2104,11 +2116,22 @@
         const uptime = Math.floor(Number(s.uptime || 0));
         const uh = Math.floor(uptime / 3600);
         const um = Math.floor((uptime % 3600) / 60);
-        const scheduleText = s.next_run ? `Next scheduled run ${new Date(s.next_run).toLocaleString()} · Agent uptime ${uh}h ${um}m` : `Agent uptime ${uh}h ${um}m · Schedule disabled`;
-        document.getElementById('scheduleSummary').textContent = scheduleText;
-        nextRunLabel = s.next_run
-            ? `Waiting for the next scheduled run at ${new Date(s.next_run).toLocaleTimeString()}.`
-            : '';
+        const schedState = s.schedule_state || (s.next_run ? 'armed' : 'disabled');
+        const nextRunLabelSafe = s.next_run_ts ? formatLagos(s.next_run_ts) : '';
+        let schedText;
+        if (schedState === 'pending') {
+            schedText = `Next run queued — will start when the current run finishes · Agent uptime ${uh}h ${um}m`;
+        } else if (schedState === 'armed') {
+            schedText = `Next scheduled run ${nextRunLabelSafe} · Agent uptime ${uh}h ${um}m`;
+        } else {
+            schedText = `Agent uptime ${uh}h ${um}m · Schedule disabled`;
+        }
+        document.getElementById('scheduleSummary').textContent = schedText;
+        nextRunLabel = s.next_run_ts && schedState !== 'pending'
+            ? `Waiting for the next scheduled run at ${formatLagos(s.next_run_ts, { time: true })}.`
+            : (schedState === 'pending'
+                ? 'Waiting for the current run to finish, then the next scheduled run starts.'
+                : '');
 
         if (s.logs && s.logs.length > 0) {
             const logBox = document.getElementById('liveLog');

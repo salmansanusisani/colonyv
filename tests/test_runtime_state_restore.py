@@ -62,7 +62,8 @@ def test_restore_populates_board_after_recycle(monkeypatch):
 
     app_module.restore_runtime_state()
 
-    assert scheduler_config["next_run"] == st["next_run"]
+    # Restored as Lagos-aware ISO (zone attached, not the naive stored string).
+    assert scheduler_config["next_run"] == "2099-01-01T00:00:00+01:00"
     assert scheduler_config["interval_hours"] == 6
     # The actual processing task is gone, so restore never leaves a phantom
     # "running" instance; the operator sees the interrupted board instead.
