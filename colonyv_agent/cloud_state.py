@@ -70,13 +70,13 @@ class FirestoreState:
         return [s for s in snapshots if isinstance(s, dict) and s.get("at")]
 
     # --- Live run + scheduler state (so the board survives instance recycles) ---
-    LOCK_DOC = "dashboard/state_lock"
-
     def save_runtime_state(self, state: dict[str, Any]) -> None:
-        self.collection.document("dashboard/state").set(state, merge=True)
+        self.client.collection("colonyv_dashboard_state").document("current").set(
+            state, merge=True
+        )
 
     def load_runtime_state(self) -> dict[str, Any] | None:
-        doc = self.collection.document("dashboard/state").get()
+        doc = self.client.collection("colonyv_dashboard_state").document("current").get()
         return doc.to_dict() if doc.exists else None
 
 
