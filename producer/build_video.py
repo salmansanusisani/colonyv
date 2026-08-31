@@ -114,6 +114,37 @@ def validate_script(data: dict[str, Any]) -> None:
         seen.add(beat["name"])
 
 
+def _norm_words(text: str) -> set[str]:
+    """Lowercase, strip punctuation, and reduce a line of narration to its
+    content words so we can compare "is this the same sentence as the hook?"."""
+    tokens = re.findall(r"[A-Za-z0-9]+", (text or "").lower())
+    return set(tokens)
+
+
+def _beat_repeats_hook(hook: str, narration: str) -> bool:
+    """True when a body beat's narration is a duplicate of the opening hook.
+
+    ScriptWriter sometimes echoes the hook as the first body beat, so the same
+    sentence is spoken twice back-to-back. The narration is the master clock,
+    so we drop the duplicate beat BEFORE TTS/timing/art-direction - filtering
+    later would desync audio from frames. A beat is a repetition when it is
+    verbatim equal to the hook or shares nearly all of the hook's words.
+    """
+    if not hook or not narration:
+        return False
+    hook_norm = _norm_words(hook)
+    narration_norm = _norm_words(narration)
+    if not hook_norm:
+        return False
+    # Verbatim (or punctuation-only) echo of the hook.
+    if hook_norm == narration_norm:
+        return True
+    # Near-verbatim repeat: the beat reuses >= 85% of the hook's words in the
+    # same core set. Catches rephrased repeats while keeping distinct beats.
+    overlap = len(hook_norm & narration_norm) / len(hook_norm)
+    return overlap >= 0.85
+
+
 # ---------------------------------------------------------------------------
 # Narration
 # ---------------------------------------------------------------------------
@@ -591,6 +622,28 @@ async def build_video(
         d.mkdir(parents=True, exist_ok=True)
 
     beats = script_data["suggested_visual_beats"]
+
+    # Drop any body beat whose narration just repeats the opening hook. The
+    # narration is the master clock (every shot duration is measured from its
+    # own audio), so this must happen before TTS/timing/art-direction - beats
+    # are re-numbered contiguously here so the renderer stays in sync.
+    hook_text = str(script_data.get("hook", ""))
+    dropped = 0
+    if hook_text and beats:
+        clean = []
+        for beat in beats:
+            if _beat_repeats_hook(hook_text, str(beat.get("narration_text", ""))):
+                dropped += 1
+                print(f"  [de-dup] dropped beat {beat.get('name', '?')!r}: "
+                      f"narration repeats the hook")
+                continue
+            clean.append(beat)
+        if clean != beats:
+            beats = clean
+            script_data["suggested_visual_beats"] = clean
+    if dropped:
+        print(f"  [de-dup] removed {dropped} beat(s) that repeated the hook; "
+              f"{len(beats)} body beat(s) remain")
 
     # --- 1. Narration -----------------------------------------------------
     print(f"[1/6] Generating {len(beats) + 2} narration files (voice={VOICE})...")
