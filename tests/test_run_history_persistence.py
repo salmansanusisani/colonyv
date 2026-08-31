@@ -112,6 +112,29 @@ def test_local_folders_win_over_cloud_when_both_exist(monkeypatch, tmp_path):
     assert entry["video_size_mb"] == pytest.approx(1.9, abs=0.2)
 
 
+def test_partial_local_folder_does_not_hide_durable_video(monkeypatch, tmp_path):
+    """A stale local folder that is only a partial shell (monitor JSON but no
+    rendered video) must not shadow the durable summary that says the run
+    completed with a published video. Regression for 'video rendered, then the
+    board shows it as 0 MB / Partial'."""
+    fake = _FakeCloud()
+    monkeypatch.setattr(app_module, "CLOUD_STATE", fake)
+
+    partial_run = tmp_path / "20260830_010252_ad9a"
+    partial_run.mkdir()
+    story = "20260830_010252_ad9a_s1"
+    (partial_run / f"{story}_monitor.json").write_text('{"title": "partial local"}')
+    # NOTE: no .mp4 here - this is the broken state that used to win over the
+    # durable summary (which reports has_video=True, 33.2 MB).
+    monkeypatch.setattr(app_module, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(app_module, "_published_video_count", lambda: 0)
+
+    data = TestClient(app_module.app).get("/api/runs").json()
+    entry = next(r for r in data["runs"] if r["run_id"] == "20260830_010252_ad9a")
+    assert entry["has_video"] is True
+    assert entry["video_size_mb"] == 33.2
+
+
 def test_analytics_survives_local_folder_run(monkeypatch, tmp_path):
     """A local run folder (whose record has a run_id derived from its name)
     must not crash /api/analytics with KeyError: 'run_id'. Regression for the

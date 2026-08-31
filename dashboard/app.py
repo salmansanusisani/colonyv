@@ -1270,16 +1270,55 @@ def _backfilled_cloud_runs() -> list[dict]:
     ]
 
 
+def _record_has_video(record: dict) -> bool:
+    """True when a run record points at a rendered video.
+
+    Local summaries and cloud summaries express this differently: local folders
+    report a count (`rendered`), Firestore summaries a flag (`has_video`), and
+    history backfills a flag derived from the saved pipeline state.
+    """
+    if record.get("has_video"):
+        return True
+    try:
+        return int(record.get("rendered") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _merge_run_records(local: list[dict], durable: list[dict]) -> list[dict]:
+    """Merge local run folders with the durable Firestore/backfill records.
+
+    Local folders are the freshest view of an in-progress or just-finished run,
+    so they win for the same run_id. But a local folder that is only a partial
+    shell (no rendered video) must not permanently hide a durable record that
+    reports the run completed with a rendered video - otherwise a published
+    video can look like "0 MB / Partial" on the board. So when the existing
+    record has no video but the durable one does, the durable one wins.
+    """
+    merged: dict[str, dict] = {}
+    for record in local + durable:
+        rid = record.get("run_id")
+        if not rid:
+            continue
+        existing = merged.get(rid)
+        if existing is None:
+            merged[rid] = record
+            continue
+        if not _record_has_video(existing) and _record_has_video(record):
+            merged[rid] = record
+    return list(merged.values())
+
+
 @app.get("/api/runs")
 async def api_runs(limit: int = 20):
-    by_id: dict[str, dict] = {}
-    for run_dir in sorted(OUTPUT_DIR.iterdir(), reverse=True) if OUTPUT_DIR.exists() else []:
-        summary = _summarize_local_dir(run_dir)
-        if summary:
-            by_id[summary["run_id"]] = summary
-    for summary in _firestore_runs() + _backfilled_cloud_runs():
-        by_id.setdefault(summary["run_id"], summary)
-    runs = sorted(by_id.values(), key=lambda r: r["run_id"], reverse=True)
+    local: list[dict] = []
+    if OUTPUT_DIR.exists():
+        for run_dir in sorted(OUTPUT_DIR.iterdir(), reverse=True):
+            summary = _summarize_local_dir(run_dir)
+            if summary:
+                local.append(summary)
+    durable = _firestore_runs() + _backfilled_cloud_runs()
+    runs = sorted(_merge_run_records(local, durable), key=lambda r: r["run_id"], reverse=True)
     return {"runs": runs[:limit]}
 
 
@@ -1572,15 +1611,12 @@ async def api_analytics():
 
     # Merge cloud summaries (and inferred history) so the charts hold their
     # full history even on a fresh instance after a redeploy. Local folders win
-    # where both exist; the local run's own counts are the most accurate.
+    # where both exist and both carry a video; a partial local folder must not
+    # hide a durable record that reports the run completed with a rendered
+    # video.
     cloud = _firestore_runs() + _backfilled_cloud_runs()
-    by_id = {r["run_id"]: r for r in runs if r.get("run_id")}
-    for r in cloud:
-        rid = r.get("run_id")
-        if not rid or rid in by_id:
-            continue
-        by_id[rid] = r
-    merged = sorted(by_id.values(), key=lambda r: r["run_id"])
+    merged = _merge_run_records(runs, cloud)
+    merged = sorted(merged, key=lambda r: r["run_id"])
     runs = [
         {
             "date": r["date"],
